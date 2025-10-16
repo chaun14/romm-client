@@ -1233,7 +1233,7 @@ async function displayInstalledRoms(roms) {
             <p>${rom.platform_name || rom.platform}</p>
             <p class="rom-size">${formatFileSize(rom.cacheSize)}</p>
           </div>
-          <button class="btn-delete delete-rom-btn" data-rom-id="${rom.id}" title="Delete cached ROM">
+          <button class="btn-delete delete-rom-btn" data-rom-id="${rom.id}" title="Remove ROM from filesystem">
             🗑️
           </button>
         </div>
