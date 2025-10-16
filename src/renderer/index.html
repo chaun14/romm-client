@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src 'self' https:">
+  <title>RomM Client</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="logo">
+        <h1>🎮 RomM Client</h1>
+      </div>
+      
+      <nav class="nav-menu">
+        <button class="nav-item active" data-view="platforms">
+          <span class="icon">🎯</span>
+          Platforms
+        </button>
+        <button class="nav-item" data-view="installed">
+          <span class="icon">💾</span>
+          Installed
+        </button>
+        <button class="nav-item" data-view="emulators">
+          <span class="icon">⚙️</span>
+          Emulators
+        </button>
+        <button class="nav-item" data-view="settings">
+          <span class="icon">🔧</span>
+          Settings
+        </button>
+      </nav>
+
+      <div class="connection-status">
+        <div class="status-info">
+          <span id="status-indicator" class="status-dot disconnected"></span>
+          <span id="status-text">Disconnected</span>
+        </div>
+        <div id="user-info" class="user-info" style="display: none;">
+          <span id="username-display"></span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Stats Bar -->
+      <div class="stats-bar" id="stats-bar" style="display: none;">
+        <div class="stats-bar-item">
+          <span class="stats-bar-icon">🎯</span>
+          <span class="stats-bar-value" id="stat-platforms">-</span>
+          <span class="stats-bar-label">Platforms</span>
+        </div>
+        <div class="stats-bar-item">
+          <span class="stats-bar-icon">🎮</span>
+          <span class="stats-bar-value" id="stat-roms">-</span>
+          <span class="stats-bar-label">ROMs</span>
+        </div>
+        <div class="stats-bar-item">
+          <span class="stats-bar-icon">💾</span>
+          <span class="stats-bar-value" id="stat-saves">-</span>
+          <span class="stats-bar-label">Saves</span>
+        </div>
+        <div class="stats-bar-item">
+          <span class="stats-bar-icon">🎬</span>
+          <span class="stats-bar-value" id="stat-states">-</span>
+          <span class="stats-bar-label">States</span>
+        </div>
+        <div class="stats-bar-item">
+          <span class="stats-bar-icon">📸</span>
+          <span class="stats-bar-value" id="stat-screenshots">-</span>
+          <span class="stats-bar-label">Screenshots</span>
+        </div>
+        <div class="stats-bar-item">
+          <span class="stats-bar-icon">☁️</span>
+          <span class="stats-bar-value" id="stat-storage">-</span>
+          <span class="stats-bar-label">Cloud storage</span>
+        </div>
+      </div>
+
+      <!-- View: Platforms -->
+      <div id="platforms-view" class="view active">
+        <div class="view-header">
+          <h2 id="platform-title">Platforms</h2>
+          <div class="search-bar" id="rom-search-bar" style="display: none;">
+            <input type="text" id="search-input" placeholder="Search for a ROM...">
+            <button id="search-btn">🔍</button>
+          </div>
+          <button id="back-to-platforms-btn" class="btn-secondary" style="display: none;">← Back</button>
+          <button id="refresh-platforms-btn" class="btn-primary">Refresh</button>
+        </div>
+
+        <div id="platforms-list" class="platforms-list">
+          <p class="empty-state">No platforms available</p>
+        </div>
+
+        <div id="roms-grid" class="roms-grid" style="display: none;">
+          <p class="empty-state">No ROMs found</p>
+        </div>
+      </div>
+
+      <!-- View: Installed ROMs -->
+      <div id="installed-view" class="view">
+        <div class="view-header">
+          <h2>💾 Installed ROMs</h2>
+          <div class="installed-controls">
+            <select id="installed-platform-filter" class="filter-select">
+              <option value="">All Platforms</option>
+            </select>
+            <input type="text" id="installed-search-input" placeholder="Search ROMs..." class="search-input">
+            <button id="refresh-installed-btn" class="btn-primary">🔄 Refresh</button>
+          </div>
+        </div>
+
+        <div id="installed-roms-list" class="installed-roms-list">
+          <p class="empty-state">Loading installed ROMs...</p>
+        </div>
+      </div>
+
+      <!-- View: Emulators -->
+      <div id="emulators-view" class="view">
+        <div class="view-header">
+          <h2>Emulator Configuration</h2>
+        </div>
+
+        <div id="emulators-config" class="emulators-config">
+          <p class="info-text">Configure the path to your emulators for each platform</p>
+        </div>
+      </div>
+
+      <!-- View: Settings -->
+      <div id="settings-view" class="view">
+        <div class="view-header">
+          <h2>Settings</h2>
+        </div>
+
+        <!-- Server URL Step -->
+        <div id="server-url-step" class="auth-step active">
+          <div class="auth-form">
+            <h3>Connect to RomM Server</h3>
+            <p class="auth-description">Enter the URL of your RomM server to get started.</p>
+
+            <div class="form-group">
+              <label for="romm-url">RomM Server URL</label>
+              <input type="text" id="romm-url" placeholder="http://localhost:8000">
+            </div>
+
+            <div class="form-actions">
+              <button id="test-connection-btn" class="btn-secondary">Test Connection</button>
+              <button id="next-to-auth-btn" class="btn-primary btn-disabled" disabled>Next</button>
+            </div>
+
+            <div id="connection-result" class="result-message"></div>
+          </div>
+        </div>
+
+        <!-- Authentication Step -->
+        <div id="auth-step" class="auth-step">
+          <div class="auth-form">
+            <h3>Authentication</h3>
+            <p class="auth-description" id="auth-description">Choose your authentication method.</p>
+
+            <!-- Password Auth Form -->
+            <div id="password-auth-form" class="auth-method-form">
+              <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" placeholder="admin">
+              </div>
+
+              <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" placeholder="••••••••">
+              </div>
+
+              <div class="form-actions">
+                <button id="back-to-url-btn" class="btn-secondary">Back</button>
+                <button id="save-settings-btn" class="btn-primary">Connect</button>
+              </div>
+            </div>
+
+            <!-- OAuth Auth Form -->
+            <div id="oauth-auth-form" class="auth-method-form" style="display: none;">
+              <div class="oauth-info">
+                <p>You will be redirected to your RomM server for authentication.</p>
+                <p>Make sure to allow popups for this application.</p>
+              </div>
+
+              <div class="form-actions">
+                <button id="back-to-url-oauth-btn" class="btn-secondary">Back</button>
+                <button id="start-oauth-btn" class="btn-primary">Start OAuth Login</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Connected State -->
+        <div id="connected-state" class="auth-step">
+          <div class="connected-info">
+            <h3>✅ Connected</h3>
+            <div id="user-info-connected" class="user-info-connected">
+              <!-- User info will be populated by JavaScript -->
+            </div>
+            <div class="form-actions">
+              <button id="settings-logout-btn" class="btn-primary">Logout</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ROM Detail Modal -->
+  <div id="rom-modal" class="modal">
+    <div class="modal-content">
+      <span class="modal-close">&times;</span>
+      <div id="rom-detail"></div>
+    </div>
+  </div>
+
+  <!-- Save Choice Modal -->
+  <div id="save-choice-modal" class="modal">
+    <div class="modal-content save-choice-content">
+      <h2>Choose a save</h2>
+      <p class="modal-subtitle">Multiple saves are available for this game.</p>
+      
+      <div id="save-options" class="save-options">
+        <!-- Options will be populated by JavaScript -->
+      </div>
+
+      <div class="modal-actions">
+        <button id="save-choice-cancel" class="btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Download Progress Modal -->
+  <div id="download-progress-modal" class="modal">
+    <div class="modal-content progress-modal-content">
+      <h2 id="progress-modal-title">Preparing ROM</h2>
+      <p class="modal-subtitle" id="download-rom-name">Please wait...</p>
+      
+      <div class="progress-container">
+        <div class="progress-bar">
+          <div id="progress-bar-fill" class="progress-bar-fill"></div>
+        </div>
+        <div class="progress-text">
+          <span id="progress-percent">0%</span>
+          <span id="progress-size"></span>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="cancel-download-btn" class="btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Consent Modal -->
+  <div id="consent-modal" class="modal">
+    <div class="modal-content consent-modal-content">
+      <h2>🔒 Security Notice</h2>
+      <p class="modal-subtitle">Choose how to handle your authentication data.</p>
+      
+      <div class="consent-info">
+        <p>Choose how to handle your authentication data.</p>
+
+        <p><strong>Session Only:</strong> You will have to re-authenticate after a few weeks</p>
+        <p><strong>Save Credentials:</strong> Store username and password in plain text (dangerous)</p>
+      </div>
+
+      <div class="modal-actions">
+        <button id="consent-session-only-btn" class="btn-primary">Use Session Only (Recommended)</button>
+        <button id="consent-allow-btn" class="btn-secondary"> Allow & Save Credentials</button>
+        <button id="consent-cancel-btn" class="btn-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
