@@ -17,7 +17,7 @@ Thumbs.db
 
 # Build files
 out/
-build/
+
 
 # Config files with sensitive data
 config.json
