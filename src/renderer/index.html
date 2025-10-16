@@ -131,6 +131,46 @@
         </div>
       </div>
 
+      <!-- View: Update -->
+      <div id="update-view" class="view">
+        <div class="view-header">
+          <h2>🔄 Software Update</h2>
+        </div>
+
+        <div class="update-content">
+          <div class="update-info">
+            <div class="update-version">
+              <h3>Version <span id="update-version">Loading...</span></h3>
+              <p class="update-status" id="update-status">Update available</p>
+            </div>
+
+            <div class="release-notes" id="release-notes">
+              <h4>What's New</h4>
+              <div id="release-notes-content">
+                <p>Loading release notes...</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="update-actions">
+            <button id="download-update-btn" class="btn-primary">⬇️ Download Update</button>
+            <button id="install-update-btn" class="btn-secondary" style="display: none;">🔄 Install & Restart</button>
+            <button id="cancel-update-btn" class="btn-cancel">❌ Cancel</button>
+          </div>
+
+          <div class="update-progress" id="update-progress" style="display: none;">
+            <div class="progress-container">
+              <div class="progress-bar">
+                <div id="update-progress-fill" class="progress-bar-fill"></div>
+              </div>
+              <div class="progress-text">
+                <span id="update-progress-percent">0%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- View: Settings -->
       <div id="settings-view" class="view">
         <div class="view-header">

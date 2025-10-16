@@ -81,18 +81,26 @@ body {
 }
 
 /* Update button styles */
-.nav-item.update-btn {
+.update-btn {
+    width: 100%;
+    padding: 1rem 1.5rem;
     background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
     color: white;
     margin: 0.5rem 1rem;
     border-radius: 0.5rem;
-    padding: 1rem 1.5rem;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 1rem;
+    transition: all 0.2s;
     position: relative;
     overflow: hidden;
     animation: pulse 2s ease-in-out infinite;
 }
 
-.nav-item.update-btn:hover {
+.update-btn:hover {
     background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
@@ -579,7 +587,11 @@ body {
     display: none;
 }
 
-.auth-step.active {
+.view:not(.active) .auth-step {
+    display: none !important;
+}
+
+.view.active .auth-step.active {
     display: block;
 }
 
@@ -1249,4 +1261,69 @@ body {
 
 .btn-cancel:hover {
     background-color: #475569;
+}
+
+/* Update View Styles */
+.update-content {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+.update-info {
+    background: var(--bg-secondary);
+    border-radius: 0.75rem;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    border: 1px solid var(--border);
+}
+
+.update-version {
+    margin-bottom: 1rem;
+}
+
+.update-version h3 {
+    color: var(--text-primary);
+    margin: 0 0 0.5rem 0;
+    font-size: 1.5rem;
+}
+
+.update-status {
+    color: var(--accent);
+    font-weight: 500;
+    margin-bottom: 1.5rem;
+}
+
+.release-notes {
+    margin-top: 1.5rem;
+}
+
+.release-notes h4 {
+    color: var(--text-primary);
+    margin: 0 0 1rem 0;
+    font-size: 1.25rem;
+}
+
+#release-notes-content {
+    color: var(--text-secondary);
+    line-height: 1.6;
+}
+
+.update-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    margin-bottom: 2rem;
+}
+
+.update-progress {
+    background: var(--bg-secondary);
+    border-radius: 0.75rem;
+    padding: 2rem;
+    border: 1px solid var(--border);
+    margin-top: 1rem;
+}
+
+.update-progress .progress-container {
+    margin-bottom: 1rem;
 }

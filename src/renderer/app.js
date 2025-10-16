@@ -12,50 +12,12 @@ let romSaveStatus = new Map();
 // Download state
 let isDownloading = false;
 
-// Update state
-let updateAvailable = false;
-let updateDownloading = false;
-let updateReady = false;
-let updateInfo = null;
-
 // Track loaded views to avoid reloading
 let loadedViews = {
     platforms: false,
     installed: false,
     emulators: false
 };
-
-// Navigation between views
-document.querySelectorAll('.nav-item').forEach(item => {
-    item.addEventListener('click', () => {
-        const viewName = item.dataset.view;
-
-        // Update navigation buttons
-        document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
-        item.classList.add('active');
-
-        // Display the view
-        document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
-        document.getElementById(`${viewName}-view`).classList.add('active');
-
-        // Reset platform view when switching views
-        if (viewName === 'platforms') {
-            showPlatformsList();
-            if (!loadedViews.platforms) {
-                loadPlatforms();
-                loadedViews.platforms = true;
-            }
-        } else if (viewName === 'installed') {
-            // Always load installed ROMs when switching to this view (will use cache if available)
-            loadInstalledRoms();
-        } else if (viewName === 'emulators') {
-            if (!loadedViews.emulators) {
-                loadEmulatorsConfig();
-                loadedViews.emulators = true;
-            }
-        }
-    });
-});
 
 // Settings
 document.getElementById('test-connection-btn').addEventListener('click', async () => {
@@ -1566,6 +1528,57 @@ async function loadStatsBar() {
 
 // Initialization
 document.addEventListener('DOMContentLoaded', async () => {
+    // Setup navigation between views
+    console.log('Setting up navigation...');
+    console.log('Available views:', document.querySelectorAll('.view').length);
+    document.querySelectorAll('.view').forEach(view => console.log('Found view:', view.id));
+
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const viewName = item.dataset.view;
+            console.log(`Navigating to: ${viewName}`);
+
+            // Update navigation buttons
+            document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+            item.classList.add('active');
+
+            // Display the view - use CSS classes only, don't manipulate style.display
+            document.querySelectorAll('.view').forEach(view => {
+                console.log(`Removing active from view: ${view.id}`);
+                view.classList.remove('active');
+            });
+            const targetView = document.getElementById(`${viewName}-view`);
+            if (targetView) {
+                targetView.classList.add('active');
+                console.log(`Added active to view: ${viewName}-view`);
+            } else {
+                console.error(`View element not found: ${viewName}-view`);
+                console.log('Available elements with -view:', document.querySelectorAll('[id*="-view"]').length);
+                document.querySelectorAll('[id*="-view"]').forEach(el => console.log('Element:', el.id));
+            }
+
+            // Reset platform view when switching views
+            if (viewName === 'platforms') {
+                showPlatformsList();
+                if (!loadedViews.platforms) {
+                    loadPlatforms();
+                    loadedViews.platforms = true;
+                }
+            } else if (viewName === 'installed') {
+                // Always load installed ROMs when switching to this view (will use cache if available)
+                loadInstalledRoms();
+            } else if (viewName === 'emulators') {
+                if (!loadedViews.emulators) {
+                    loadEmulatorsConfig();
+                    loadedViews.emulators = true;
+                }
+            } else if (viewName === 'settings') {
+                // Ensure settings view shows the appropriate step based on connection status
+                updateSettingsViewState();
+            }
+        });
+    });
+
     // Setup save upload success notification listener
     window.electronEvents.onSaveUploadSuccess((data) => {
         showNotification(`Save uploaded successfully for "${data.romName}"`, 'success');
@@ -1573,6 +1586,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Setup update event listeners
     setupUpdateListeners();
+
+    // Setup update view event listeners
+    setupUpdateViewListeners();
 
     // Load saved server URL into the input field
     const savedUrl = await window.electronAPI.config.getBaseUrl();
@@ -1597,7 +1613,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 await preloadData();
                 await loadPlatforms();
 
-                // Show connected state in settings
+                // Show connected state in settings (but keep settings view hidden)
                 document.getElementById('server-url-step').classList.remove('active');
                 document.getElementById('auth-step').classList.remove('active');
                 document.getElementById('connected-state').classList.add('active');
@@ -1659,7 +1675,7 @@ function showUpdateButton() {
     if (!updateBtn) {
         updateBtn = document.createElement('button');
         updateBtn.id = 'update-btn';
-        updateBtn.className = 'nav-item update-btn';
+        updateBtn.className = 'update-btn';
         updateBtn.innerHTML = `
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="12" cy="12" r="10"></circle>
@@ -1669,11 +1685,16 @@ function showUpdateButton() {
             <span class="update-badge">NEW</span>
         `;
 
-        // Insert before settings button
-        const settingsBtn = document.querySelector('[data-view="settings"]');
-        sidebar.insertBefore(updateBtn, settingsBtn);
+        // Insert before connection status
+        const connectionStatus = document.querySelector('.connection-status');
+        if (connectionStatus && connectionStatus.parentNode) {
+            connectionStatus.parentNode.insertBefore(updateBtn, connectionStatus);
+        }
 
-        updateBtn.addEventListener('click', showUpdateModal);
+        updateBtn.addEventListener('click', () => {
+            // Navigate to update view instead of showing modal
+            showUpdateView();
+        });
     }
 
     updateBtn.style.display = 'flex';
@@ -1696,6 +1717,11 @@ function showUpdateReadyButton() {
             <span>Restart to Update</span>
             <span class="update-badge ready">READY</span>
         `;
+    }
+
+    // If update view is currently active, update it
+    if (document.getElementById('update-view').classList.contains('active')) {
+        populateUpdateView();
     }
 }
 
@@ -1764,40 +1790,50 @@ function closeUpdateModal() {
 async function downloadUpdate() {
     updateDownloading = true;
 
-    // Update modal to show download progress
-    const modal = document.querySelector('.modal.active');
-    if (modal) {
-        modal.innerHTML = `
-            <div class="modal-content update-modal">
-                <h2>Downloading Update</h2>
-                <p>Version ${updateInfo.version} is being downloaded...</p>
-                <div class="update-progress-bar">
-                    <div class="update-progress-fill" id="update-progress-fill" style="width: 0%"></div>
-                </div>
-                <p class="update-progress-text" id="update-progress-text">0%</p>
-                <div class="modal-actions">
-                    <button class="btn btn-secondary" onclick="closeUpdateModal()">Close</button>
-                </div>
-            </div>
-        `;
+    // Show progress in update view
+    const progressElement = document.getElementById('update-progress');
+    if (progressElement) {
+        progressElement.style.display = 'block';
+    }
+
+    // Update status
+    const statusElement = document.getElementById('update-status');
+    if (statusElement) {
+        statusElement.textContent = 'Downloading...';
+    }
+
+    // Hide download button
+    const downloadBtn = document.getElementById('download-update-btn');
+    if (downloadBtn) {
+        downloadBtn.style.display = 'none';
     }
 
     const result = await window.electronAPI.updates.download();
     if (!result.success) {
         showNotification(`Failed to download update: ${result.error}`, 'error');
-        closeUpdateModal();
+        // Reset UI
+        if (progressElement) {
+            progressElement.style.display = 'none';
+        }
+        if (statusElement) {
+            statusElement.textContent = 'Update available';
+        }
+        if (downloadBtn) {
+            downloadBtn.style.display = 'block';
+        }
+        updateDownloading = false;
     }
 }
 
 function updateDownloadProgress(percent) {
     const progressFill = document.getElementById('update-progress-fill');
-    const progressText = document.getElementById('update-progress-text');
+    const progressPercent = document.getElementById('update-progress-percent');
 
     if (progressFill) {
         progressFill.style.width = `${percent}%`;
     }
-    if (progressText) {
-        progressText.textContent = `${Math.round(percent)}%`;
+    if (progressPercent) {
+        progressPercent.textContent = `${Math.round(percent)}%`;
     }
 }
 
@@ -1805,8 +1841,97 @@ async function installUpdate() {
     await window.electronAPI.updates.install();
 }
 
-// Make functions global for onclick handlers
-window.closeUpdateModal = closeUpdateModal;
-window.downloadUpdate = downloadUpdate;
-window.installUpdate = installUpdate;
+function showUpdateView() {
+    // Update navigation
+    document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+
+    // Display the update view
+    document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+    const updateView = document.getElementById('update-view');
+    if (updateView) {
+        updateView.classList.add('active');
+    }
+
+    // Populate update information
+    populateUpdateView();
+}
+
+function populateUpdateView() {
+    const versionElement = document.getElementById('update-version');
+    const statusElement = document.getElementById('update-status');
+    const notesElement = document.getElementById('release-notes-content');
+    const downloadBtn = document.getElementById('download-update-btn');
+    const installBtn = document.getElementById('install-update-btn');
+
+    if (versionElement && updateInfo) {
+        versionElement.textContent = updateInfo.version;
+    }
+
+    if (statusElement) {
+        if (updateReady) {
+            statusElement.textContent = 'Ready to install';
+            downloadBtn.style.display = 'none';
+            installBtn.style.display = 'block';
+        } else if (updateDownloading) {
+            statusElement.textContent = 'Downloading...';
+            downloadBtn.style.display = 'none';
+            installBtn.style.display = 'none';
+        } else {
+            statusElement.textContent = 'Update available';
+            downloadBtn.style.display = 'block';
+            installBtn.style.display = 'none';
+        }
+    }
+
+    if (notesElement && updateInfo && updateInfo.releaseNotes) {
+        notesElement.innerHTML = updateInfo.releaseNotes.replace(/\n/g, '<br>');
+    } else {
+        notesElement.innerHTML = '<p>No release notes available.</p>';
+    }
+}
+
+function setupUpdateViewListeners() {
+    // Download update button
+    const downloadBtn = document.getElementById('download-update-btn');
+    if (downloadBtn) {
+        downloadBtn.addEventListener('click', downloadUpdate);
+    }
+
+    // Install update button
+    const installBtn = document.getElementById('install-update-btn');
+    if (installBtn) {
+        installBtn.addEventListener('click', installUpdate);
+    }
+
+    // Cancel update button
+    const cancelBtn = document.getElementById('cancel-update-btn');
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', () => {
+            // Navigate back to platforms view
+            document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+            document.querySelector('[data-view="platforms"]').classList.add('active');
+
+            document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+            document.getElementById('platforms-view').classList.add('active');
+        });
+    }
+}
+
+// Function to update settings view state based on connection status
+function updateSettingsViewState() {
+    // Check current connection status
+    const isConnected = currentUser !== null;
+
+    if (isConnected) {
+        // Show connected state
+        document.getElementById('server-url-step').classList.remove('active');
+        document.getElementById('auth-step').classList.remove('active');
+        document.getElementById('connected-state').classList.add('active');
+    } else {
+        // Show server URL step for connection
+        document.getElementById('server-url-step').classList.add('active');
+        document.getElementById('auth-step').classList.remove('active');
+        document.getElementById('connected-state').classList.remove('active');
+    }
+}
 
