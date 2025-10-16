@@ -12,6 +12,12 @@ let romSaveStatus = new Map();
 // Download state
 let isDownloading = false;
 
+// Update state
+let updateAvailable = false;
+let updateDownloading = false;
+let updateReady = false;
+let updateInfo = null;
+
 // Track loaded views to avoid reloading
 let loadedViews = {
     platforms: false,
@@ -1565,6 +1571,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         showNotification(`Save uploaded successfully for "${data.romName}"`, 'success');
     });
 
+    // Setup update event listeners
+    setupUpdateListeners();
+
     // Load saved server URL into the input field
     const savedUrl = await window.electronAPI.config.getBaseUrl();
     if (savedUrl) {
@@ -1608,3 +1617,196 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateConnectionStatus(false);
     }
 });
+
+// Update management functions
+function setupUpdateListeners() {
+    // Update available
+    window.electronEvents.onUpdateAvailable((info) => {
+        console.log('Update available:', info.version);
+        updateAvailable = true;
+        updateInfo = info;
+        showUpdateButton();
+    });
+
+    // Download progress
+    window.electronEvents.onUpdateDownloadProgress((progress) => {
+        console.log('Download progress:', progress.percent);
+        updateDownloadProgress(progress.percent);
+    });
+
+    // Update downloaded
+    window.electronEvents.onUpdateDownloaded((info) => {
+        console.log('Update downloaded:', info.version);
+        updateDownloading = false;
+        updateReady = true;
+        showUpdateReadyButton();
+    });
+
+    // Update error
+    window.electronEvents.onUpdateError((error) => {
+        console.error('Update error:', error.message);
+        showNotification(`Update error: ${error.message}`, 'error');
+        hideUpdateButton();
+    });
+}
+
+function showUpdateButton() {
+    const sidebar = document.querySelector('.sidebar');
+
+    // Check if button already exists
+    let updateBtn = document.getElementById('update-btn');
+
+    if (!updateBtn) {
+        updateBtn = document.createElement('button');
+        updateBtn.id = 'update-btn';
+        updateBtn.className = 'nav-item update-btn';
+        updateBtn.innerHTML = `
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <path d="M12 6v6l4 2"></path>
+            </svg>
+            <span>Update Available</span>
+            <span class="update-badge">NEW</span>
+        `;
+
+        // Insert before settings button
+        const settingsBtn = document.querySelector('[data-view="settings"]');
+        sidebar.insertBefore(updateBtn, settingsBtn);
+
+        updateBtn.addEventListener('click', showUpdateModal);
+    }
+
+    updateBtn.style.display = 'flex';
+}
+
+function hideUpdateButton() {
+    const updateBtn = document.getElementById('update-btn');
+    if (updateBtn) {
+        updateBtn.style.display = 'none';
+    }
+}
+
+function showUpdateReadyButton() {
+    const updateBtn = document.getElementById('update-btn');
+    if (updateBtn) {
+        updateBtn.innerHTML = `
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+            <span>Restart to Update</span>
+            <span class="update-badge ready">READY</span>
+        `;
+    }
+}
+
+function showUpdateModal() {
+    const modal = document.createElement('div');
+    modal.className = 'modal active';
+
+    if (updateReady) {
+        // Update is ready to install
+        modal.innerHTML = `
+            <div class="modal-content update-modal">
+                <h2>Update Ready</h2>
+                <p>Version ${updateInfo.version} has been downloaded and is ready to install.</p>
+                <p>The application will restart to complete the installation.</p>
+                <div class="modal-actions">
+                    <button class="btn btn-secondary" onclick="closeUpdateModal()">Later</button>
+                    <button class="btn btn-primary" onclick="installUpdate()">Restart Now</button>
+                </div>
+            </div>
+        `;
+    } else if (updateDownloading) {
+        // Update is downloading
+        modal.innerHTML = `
+            <div class="modal-content update-modal">
+                <h2>Downloading Update</h2>
+                <p>Version ${updateInfo.version} is being downloaded...</p>
+                <div class="update-progress-bar">
+                    <div class="update-progress-fill" id="update-progress-fill" style="width: 0%"></div>
+                </div>
+                <p class="update-progress-text" id="update-progress-text">0%</p>
+                <div class="modal-actions">
+                    <button class="btn btn-secondary" onclick="closeUpdateModal()">Close</button>
+                </div>
+            </div>
+        `;
+    } else {
+        // Update available but not downloaded yet
+        modal.innerHTML = `
+            <div class="modal-content update-modal">
+                <h2>Update Available</h2>
+                <p><strong>Version ${updateInfo.version}</strong> is available for download.</p>
+                ${updateInfo.releaseNotes ? `
+                    <div class="release-notes">
+                        <h3>What's New:</h3>
+                        <p>${updateInfo.releaseNotes}</p>
+                    </div>
+                ` : ''}
+                <div class="modal-actions">
+                    <button class="btn btn-secondary" onclick="closeUpdateModal()">Later</button>
+                    <button class="btn btn-primary" onclick="downloadUpdate()">Download Update</button>
+                </div>
+            </div>
+        `;
+    }
+
+    document.body.appendChild(modal);
+}
+
+function closeUpdateModal() {
+    const modal = document.querySelector('.modal.active');
+    if (modal && modal.querySelector('.update-modal')) {
+        modal.remove();
+    }
+}
+
+async function downloadUpdate() {
+    updateDownloading = true;
+
+    // Update modal to show download progress
+    const modal = document.querySelector('.modal.active');
+    if (modal) {
+        modal.innerHTML = `
+            <div class="modal-content update-modal">
+                <h2>Downloading Update</h2>
+                <p>Version ${updateInfo.version} is being downloaded...</p>
+                <div class="update-progress-bar">
+                    <div class="update-progress-fill" id="update-progress-fill" style="width: 0%"></div>
+                </div>
+                <p class="update-progress-text" id="update-progress-text">0%</p>
+                <div class="modal-actions">
+                    <button class="btn btn-secondary" onclick="closeUpdateModal()">Close</button>
+                </div>
+            </div>
+        `;
+    }
+
+    const result = await window.electronAPI.updates.download();
+    if (!result.success) {
+        showNotification(`Failed to download update: ${result.error}`, 'error');
+        closeUpdateModal();
+    }
+}
+
+function updateDownloadProgress(percent) {
+    const progressFill = document.getElementById('update-progress-fill');
+    const progressText = document.getElementById('update-progress-text');
+
+    if (progressFill) {
+        progressFill.style.width = `${percent}%`;
+    }
+    if (progressText) {
+        progressText.textContent = `${Math.round(percent)}%`;
+    }
+}
+
+async function installUpdate() {
+    await window.electronAPI.updates.install();
+}
+
+// Make functions global for onclick handlers
+window.closeUpdateModal = closeUpdateModal;
+window.downloadUpdate = downloadUpdate;
+window.installUpdate = installUpdate;
+

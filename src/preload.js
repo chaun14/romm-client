@@ -104,7 +104,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getRomCacheSize: (rom) => ipcRenderer.invoke('rom:get-cache-size', rom),
 
     // Open RomM Web Interface
-    openRommWebInterface: (romId) => ipcRenderer.invoke('romm:open-web-interface', romId)
+    openRommWebInterface: (romId) => ipcRenderer.invoke('romm:open-web-interface', romId),
+
+    // Updates
+    updates: {
+        check: () => ipcRenderer.invoke('update:check'),
+        download: () => ipcRenderer.invoke('update:download'),
+        install: () => ipcRenderer.invoke('update:install')
+    }
 });
 
 // Event listeners for notifications
@@ -114,5 +121,25 @@ contextBridge.exposeInMainWorld('electronEvents', {
     },
     removeSaveUploadSuccessListener: () => {
         ipcRenderer.removeAllListeners('save:upload-success');
+    },
+
+    // Update events
+    onUpdateAvailable: (callback) => {
+        ipcRenderer.on('update-available', (event, data) => callback(data));
+    },
+    onUpdateDownloadProgress: (callback) => {
+        ipcRenderer.on('update-download-progress', (event, data) => callback(data));
+    },
+    onUpdateDownloaded: (callback) => {
+        ipcRenderer.on('update-downloaded', (event, data) => callback(data));
+    },
+    onUpdateError: (callback) => {
+        ipcRenderer.on('update-error', (event, data) => callback(data));
+    },
+    removeUpdateListeners: () => {
+        ipcRenderer.removeAllListeners('update-available');
+        ipcRenderer.removeAllListeners('update-download-progress');
+        ipcRenderer.removeAllListeners('update-downloaded');
+        ipcRenderer.removeAllListeners('update-error');
     }
 });

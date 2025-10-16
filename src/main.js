@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, session } = require('electron');
 const path = require('path');
+const { autoUpdater } = require('electron-updater');
 const RommAPI = require('./api/romm-api');
 const EmulatorManager = require('./managers/emulator-manager');
 const SaveManager = require('./managers/save-manager');
@@ -472,3 +473,84 @@ ipcMain.handle('rom:check-saves', async (event, rom) => {
 ipcMain.handle('romm:open-web-interface', async (event, romId) => {
     return createRommWebWindow(romId);
 });
+
+// Auto-updater configuration
+autoUpdater.autoDownload = false; // Don't auto-download, wait for user confirmation
+autoUpdater.autoInstallOnAppQuit = true;
+
+// Check for updates on app ready (skip in dev mode)
+app.whenReady().then(() => {
+    if (!process.argv.includes('--dev')) {
+        setTimeout(() => {
+            autoUpdater.checkForUpdates();
+        }, 3000); // Check 3 seconds after startup
+    }
+});
+
+// Auto-updater events
+autoUpdater.on('update-available', (info) => {
+    console.log('Update available:', info.version);
+    if (mainWindow) {
+        mainWindow.webContents.send('update-available', {
+            version: info.version,
+            releaseDate: info.releaseDate,
+            releaseNotes: info.releaseNotes
+        });
+    }
+});
+
+autoUpdater.on('update-not-available', (info) => {
+    console.log('No updates available');
+});
+
+autoUpdater.on('download-progress', (progressObj) => {
+    if (mainWindow) {
+        mainWindow.webContents.send('update-download-progress', {
+            percent: progressObj.percent,
+            transferred: progressObj.transferred,
+            total: progressObj.total
+        });
+    }
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+    console.log('Update downloaded:', info.version);
+    if (mainWindow) {
+        mainWindow.webContents.send('update-downloaded', {
+            version: info.version
+        });
+    }
+});
+
+autoUpdater.on('error', (error) => {
+    console.error('Update error:', error);
+    if (mainWindow) {
+        mainWindow.webContents.send('update-error', {
+            message: error.message
+        });
+    }
+});
+
+// IPC handlers for updates
+ipcMain.handle('update:check', async () => {
+    try {
+        const result = await autoUpdater.checkForUpdates();
+        return { success: true, data: result };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('update:download', async () => {
+    try {
+        await autoUpdater.downloadUpdate();
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('update:install', () => {
+    autoUpdater.quitAndInstall(false, true);
+});
+

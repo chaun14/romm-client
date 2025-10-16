@@ -1,7 +1,7 @@
 {
   "name": "romm-client",
   "version": "1.0.0",
-  "description": "Client Electron pour RomM - Gestion et lancement de ROMs avec synchronisation des sauvegardes",
+  "description": "Electron app that plugs into the RomM API to provide a desktop experience",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
@@ -9,7 +9,8 @@
     "build": "electron-builder",
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
-    "build:linux": "electron-builder --linux"
+    "build:linux": "electron-builder --linux",
+    "publish": "electron-builder --win --publish always"
   },
   "keywords": [
     "romm",
@@ -27,10 +28,11 @@
     "adm-zip": "^0.5.16",
     "axios": "^1.6.2",
     "crc-32": "^1.2.2",
+    "electron-updater": "^6.6.2",
     "form-data": "^4.0.4"
   },
   "build": {
-    "appId": "com.romm.client",
+    "appId": "fr.chaun14.rommclient",
     "productName": "RomM Client",
     "directories": {
       "output": "dist"
@@ -39,17 +41,30 @@
       "src/**/*",
       "package.json"
     ],
+    "publish": {
+      "provider": "github",
+      "owner": "chaun14",
+      "repo": "romm-client"
+    },
     "win": {
       "target": "nsis",
-      "icon": "assets/icon.ico"
+      "publish": [
+        "github"
+      ]
     },
     "mac": {
-      "target": "dmg",
-      "icon": "assets/icon.icns"
+      "target": "dmg"
     },
     "linux": {
-      "target": "AppImage",
-      "icon": "assets/icon.png"
+      "target": "AppImage"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "RomMClient-Setup-${version}-${arch}.${ext}",
+      "runAfterFinish": true,
+      "differentialPackage": true
     }
   }
 }
