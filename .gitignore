@@ -22,6 +22,8 @@ out/
 # Config files with sensitive data
 config.json
 emulators.json
+tests/.env
+.env
 
 # Temporary files
 *.tmp
