@@ -54,7 +54,20 @@ export class RommApi {
     return !!this.sessionToken;
   }
 
-  async login(username: string, password: string, saveCredentials: boolean = true): Promise<ApiResponse<string>> {
+  get sessionTokenValue(): string | null {
+    // Extract token value from cookie string (format: "romm_session=tokenvalue")
+    if (this.sessionToken) {
+      const match = this.sessionToken.match(/romm_session=([^;]+)/);
+      return match ? match[1] : null;
+    }
+    return null;
+  }
+
+  get csrfTokenValue(): string | null {
+    return this.csrfToken;
+  }
+
+  public async loginWithCredentials(username: string, password: string): Promise<ApiResponse<Boolean | string>> {
     try {
       const auth = Buffer.from(`${username}:${password}`).toString("base64");
 
@@ -79,6 +92,7 @@ export class RommApi {
       // Extract tokens
       if (cookies["romm_session"]) {
         this.sessionToken = `romm_session=${cookies["romm_session"]}`;
+        console.log("Login successful, session token obtained.");
       }
       this.csrfToken = cookies["romm_csrftoken"] || cookies["csrftoken"];
 
@@ -88,6 +102,42 @@ export class RommApi {
       this.clearAuth();
       return this.handleApiError(error);
     }
+  }
+
+  /**
+   * Login using saved session token
+   * Verifies that the session is still valid
+   */
+  public async loginWithSession(sessionToken: string, csrfToken?: string): Promise<ApiResponse<boolean>> {
+    try {
+      // Reconstruct the full cookie from the token
+      this.sessionToken = `romm_session=${sessionToken}`;
+      if (csrfToken) {
+        this.csrfToken = csrfToken;
+      }
+
+      // Re-initialize client with session
+      this.initClient();
+
+      // Test if session is still valid by making an authenticated request
+      // Use /api/me to get current user info (standard endpoint for session validation)
+      const response = await this.client!.get("/api/users/me");
+
+      if (response.status === 200 && response.data) {
+        console.log("Session login successful - session is still valid.");
+        return { success: true, data: true };
+      } else {
+        throw new Error("Session validation failed" + response.status);
+      }
+    } catch (error: any) {
+      console.log("Session login failed - session expired or invalid." + error.message);
+      this.clearAuth();
+      return this.handleApiError(error);
+    }
+  }
+
+  public isUserAuthenticated(): boolean {
+    return this.isAuthenticated && this.sessionToken !== null;
   }
 
   clearAuth(): void {
@@ -105,8 +155,7 @@ export class RommApi {
         const htmlContent = response.data;
 
         // Extract CSRF from HTML
-        const csrfMatch =
-          htmlContent.match(/name="csrf_token"\s+value="([^"]+)"/) || htmlContent.match(/csrf_token["\s]*:\s*["']([^"']+)["']/) || htmlContent.match(/window\.csrf_token\s*=\s*["']([^"']+)["']/);
+        const csrfMatch = htmlContent.match(/name="csrf_token"\s+value="([^"]+)"/) || htmlContent.match(/csrf_token["\s]*:\s*["']([^"']+)["']/) || htmlContent.match(/window\.csrf_token\s*=\s*["']([^"']+)["']/);
 
         if (csrfMatch?.[1]) {
           this.csrfToken = csrfMatch[1];

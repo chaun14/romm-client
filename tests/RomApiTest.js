@@ -37,7 +37,7 @@ async function testRommApi() {
         const username = process.env.ROMM_USERNAME || 'admin';
         const password = process.env.ROMM_PASSWORD || 'admin';
         const loginResponse = await api.loginWithCredentials(username, password);
-        const connectionState = await api.getConnectionState();
+        const connectionState = await api.isUserAuthenticated();
         console.log(`Connection state after login: ${JSON.stringify(connectionState)}\n`);
         if (loginResponse && loginResponse.success === true) {
             console.log('✅ Login successful.\n');

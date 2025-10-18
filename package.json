@@ -6,7 +6,8 @@
   "scripts": {
     "start": "npm run build &&electron .",
     "dev": "npm run build && electron . --dev",
-    "build": "tsc",
+    "build": "tsc && npm run copy-assets",
+    "copy-assets": "xcopy src\\renderer out\\renderer /E /I /Y && copy src\\preload.js out\\",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win",
     "dist:mac": "electron-builder --mac",

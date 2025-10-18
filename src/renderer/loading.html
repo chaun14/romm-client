@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RomM Client - Loading</title>
+    <style>
+        * {
+            margin: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary-color: #6366f1;
+            --primary-hover: #4f46e5;
+            --secondary-color: #64748b;
+            --bg-dark: #1e293b;
+            --bg-darker: #0f172a;
+            --bg-light: #334155;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --border-color: #475569;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: var(--bg-darker);
+            color: var(--text-primary);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .loading-container {
+            text-align: center;
+            max-width: 400px;
+            padding: 2rem;
+            background-color: var(--bg-dark);
+            border-radius: 1rem;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+        }
+
+        .logo {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            color: var(--primary-color);
+        }
+
+        .subtitle {
+            font-size: 1rem;
+            margin-bottom: 2rem;
+            color: var(--text-secondary);
+        }
+
+        .spinner {
+            width: 60px;
+            height: 60px;
+            border: 4px solid var(--border-color);
+            border-radius: 50%;
+            border-top-color: var(--primary-color);
+            animation: spin 1s ease-in-out infinite;
+            margin: 0 auto 2rem;
+        }
+
+        .loading-text {
+            font-size: 1rem;
+            color: var(--text-secondary);
+            margin-bottom: 1.5rem;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: var(--bg-light);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 1rem;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary-color), var(--primary-hover));
+            border-radius: 3px;
+            animation: progress 2.5s ease-in-out infinite;
+        }
+
+        .status-info {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-top: 1rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--warning);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .status-dot.success {
+            background-color: var(--success);
+            animation: none;
+        }
+
+        .status-dot.error {
+            background-color: var(--danger);
+            animation: none;
+        }
+
+        .status-steps {
+            margin-top: 2rem;
+            text-align: left;
+            width: 100%;
+        }
+
+        .status-step {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            opacity: 0.7;
+        }
+
+        .status-step.active {
+            opacity: 1;
+        }
+
+        .status-step.success {
+            color: var(--success);
+        }
+
+        .status-step.error {
+            color: var(--danger);
+        }
+
+        .step-icon {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background-color: var(--bg-light);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            color: var(--text-secondary);
+        }
+
+        .step-icon.success::before {
+            content: '✓';
+            color: var(--success);
+        }
+
+        .step-icon.error::before {
+            content: '✕';
+            color: var(--danger);
+        }
+
+        .step-icon.pending::before {
+            content: '○';
+            animation: spin 1s linear infinite;
+        }
+
+        .version {
+            position: absolute;
+            bottom: 1rem;
+            right: 1rem;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
+        @keyframes progress {
+            0% { width: 0%; }
+            50% { width: 70%; }
+            100% { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="loading-container">
+        <div class="logo">🎮 RomM Client</div>
+        <div class="subtitle">Your ROM Management Solution</div>
+
+        <div class="spinner"></div>
+
+        <div class="loading-text">Loading application...</div>
+
+        <div class="progress-bar">
+            <div class="progress-fill"></div>
+        </div>
+
+        <div class="status-info">
+            <span class="status-dot"></span>
+            <span id="status-text">Initializing</span>
+        </div>
+
+        <div class="status-steps">
+            <div class="status-step" data-step="url">
+                <div class="step-icon pending"></div>
+                <span>Checking RomM URL</span>
+            </div>
+            <div class="status-step" data-step="auth">
+                <div class="step-icon"></div>
+                <span>Authenticating</span>
+            </div>
+            <div class="status-step" data-step="roms">
+                <div class="step-icon"></div>
+                <span>Discovering ROMs</span>
+            </div>
+            <div class="status-step" data-step="cache">
+                <div class="step-icon"></div>
+                <span>Caching data</span>
+            </div>
+        </div>
+
+    <div class="version" id="version">v0.0.0</div>
+
+    <script>
+        async function init(){
+            const versionResults = await window.electronAPI.config.getVersion();
+            document.getElementById('version').innerText = `v${versionResults.data}`;
+
+            // Listen for initialization status updates
+            window.electronEvents.onInitStatus((event, data) => {
+                updateInitStatus(data);
+            });
+
+            // Listen for initialization errors
+            window.electronEvents.onInitError((event, errorMessage) => {
+                showInitError(errorMessage);
+            });
+
+            // Listen for initialization completion
+            window.electronEvents.onInitComplete((event) => {
+                showMainInterface();
+            });
+        }
+
+        function updateInitStatus(data) {
+            const { step, status, message } = data;
+            const statusText = document.getElementById('status-text');
+            const statusDot = document.querySelector('.status-dot');
+            const stepElement = document.querySelector(`[data-step="${step}"]`);
+            const stepIcon = stepElement?.querySelector('.step-icon');
+
+            if (statusText) statusText.textContent = message;
+            if (statusDot) {
+                statusDot.className = `status-dot ${status}`;
+            }
+
+            if (stepElement && stepIcon) {
+                stepElement.className = `status-step active ${status}`;
+                stepIcon.className = `step-icon ${status}`;
+            }
+        }
+
+        function showInitError(errorMessage) {
+            const statusText = document.getElementById('status-text');
+            const statusDot = document.querySelector('.status-dot');
+
+            if (statusText) statusText.textContent = `Error: ${errorMessage}`;
+            if (statusDot) {
+                statusDot.className = 'status-dot error';
+            }
+
+            // Stop spinner and progress animation
+            const spinner = document.querySelector('.spinner');
+            const progressFill = document.querySelector('.progress-fill');
+
+            if (spinner) spinner.style.animation = 'none';
+            if (progressFill) progressFill.style.animation = 'none';
+        }
+
+        function showMainInterface() {
+            const statusText = document.getElementById('status-text');
+            const statusDot = document.querySelector('.status-dot');
+
+            if (statusText) statusText.textContent = 'Ready!';
+            if (statusDot) {
+                statusDot.className = 'status-dot success';
+            }
+
+            // Stop animations and show success
+            const spinner = document.querySelector('.spinner');
+            const progressFill = document.querySelector('.progress-fill');
+
+            if (spinner) spinner.style.animation = 'none';
+            if (progressFill) {
+                progressFill.style.animation = 'none';
+                progressFill.style.width = '100%';
+                progressFill.style.background = 'var(--success)';
+            }
+
+            // TODO: Switch to main interface after a short delay
+            setTimeout(() => {
+                console.log('Switching to main interface...');
+                // window.location.href = 'index.html'; // Or use IPC to tell main process to load main interface
+            }, 1000);
+        }
+
+        init();
+    </script>
+</body>
+</html>

@@ -42,8 +42,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
         startOAuth: (url) => ipcRenderer.invoke('config:start-oauth', url),
         hasSavedCredentials: () => ipcRenderer.invoke('config:has-saved-credentials'),
         authenticateWithSavedCredentials: () => ipcRenderer.invoke('config:authenticate-with-saved-credentials'),
-        hasSavedSession: () => ipcRenderer.invoke('config:has-saved-session')
+        hasSavedSession: () => ipcRenderer.invoke('config:has-saved-session'),
+        getVersion: () => ipcRenderer.invoke('config:get-version')
     },
+
+    // Login completion
+    loginComplete: () => ipcRenderer.send('login-complete'),
 
     // ROMs
     roms: {
@@ -116,6 +120,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
 // Event listeners for notifications
 contextBridge.exposeInMainWorld('electronEvents', {
+    // Initialization events
+    onInitStatus: (callback) => {
+        ipcRenderer.on('init-status', (event, data) => callback(event, data));
+    },
+    onInitError: (callback) => {
+        ipcRenderer.on('init-error', (event, data) => callback(event, data));
+    },
+    onInitComplete: (callback) => {
+        ipcRenderer.on('init-complete', (event) => callback(event));
+    },
+    removeInitListeners: () => {
+        ipcRenderer.removeAllListeners('init-status');
+        ipcRenderer.removeAllListeners('init-error');
+        ipcRenderer.removeAllListeners('init-complete');
+    },
+
     onSaveUploadSuccess: (callback) => {
         ipcRenderer.on('save:upload-success', (event, data) => callback(data));
     },
