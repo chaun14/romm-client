@@ -1,11 +1,11 @@
-import { spawn, ChildProcess } from 'child_process';
-import * as fs from 'fs/promises';
-import * as fsSync from 'fs';
-import * as path from 'path';
+import { spawn, ChildProcess } from "child_process";
+import * as fs from "fs/promises";
+import * as fsSync from "fs";
+import * as path from "path";
 
-import { Rom } from '../../types/RommApi';
-import { RommApi } from '../../api/RommApi';
-import { SaveManager } from '../SaveManager';
+import { Rom } from "../../types/RommApi";
+import { RommApi } from "../../api/RommApi";
+import { SaveManager } from "../SaveManager";
 
 export interface EmulatorConfig {
   path?: string;
@@ -74,7 +74,7 @@ export abstract class Emulator {
     this.platform = config.platform;
     this.name = config.name;
     this.extensions = config.extensions || [];
-    this.defaultArgs = config.args || ['{rom}'];
+    this.defaultArgs = config.args || ["{rom}"];
   }
 
   /**
@@ -98,7 +98,7 @@ export abstract class Emulator {
    */
   public static getRommSlug(): string {
     // Default implementation - should be overridden by subclasses
-    return '';
+    return "";
   }
 
   /**
@@ -106,7 +106,7 @@ export abstract class Emulator {
    */
   public static getDefaultArgs(): string[] {
     // Default implementation - should be overridden by subclasses
-    return ['{rom}'];
+    return ["{rom}"];
   }
 
   /**
@@ -142,22 +142,14 @@ export abstract class Emulator {
    * Prepare emulator arguments by replacing placeholders
    */
   public prepareArgs(romPath: string, saveDir: string): string[] {
-    return this.defaultArgs.map(arg =>
-      arg.replace('{rom}', romPath)
-        .replace('{save}', saveDir)
-    );
+    return this.defaultArgs.map((arg) => arg.replace("{rom}", romPath).replace("{save}", saveDir));
   }
 
   /**
    * Setup emulator environment before launch
    * Override in subclasses for platform-specific setup
    */
-  public async setupEnvironment(
-    rom: Rom,
-    saveDir: string,
-    rommAPI: RommApi | null,
-    saveManager: SaveManager
-  ): Promise<EnvironmentSetupResult> {
+  public async setupEnvironment(rom: Rom, saveDir: string, rommAPI: RommApi | null, saveManager: SaveManager): Promise<EnvironmentSetupResult> {
     // Default implementation - no special setup needed
     return { success: true };
   }
@@ -166,12 +158,7 @@ export abstract class Emulator {
    * Handle save synchronization after emulator closes
    * Override in subclasses for platform-specific save handling
    */
-  public async handleSaveSync(
-    rom: Rom,
-    saveDir: string,
-    rommAPI: RommApi | null,
-    saveManager: SaveManager
-  ): Promise<SaveSyncResult> {
+  public async handleSaveSync(rom: Rom, saveDir: string, rommAPI: RommApi | null, saveManager: SaveManager): Promise<SaveSyncResult> {
     // Default implementation - no save sync needed
     return { success: true };
   }
@@ -185,26 +172,26 @@ export abstract class Emulator {
     if (!emulatorPath) {
       return {
         success: false,
-        error: `Emulator path not configured for ${this.name}`
+        error: `Emulator path not configured for ${this.name}`,
       };
     }
 
     // Prepare arguments
     const args = this.prepareArgs(romPath, saveDir);
 
-    console.log(`Launching ${this.name}: ${emulatorPath} ${args.join(' ')}`);
+    console.log(`Launching ${this.name}: ${emulatorPath} ${args.join(" ")}`);
 
     // Launch emulator
     const emulatorProcess = spawn(emulatorPath, args, {
       detached: false,
-      stdio: 'ignore'
+      stdio: "ignore",
     });
 
     return {
       success: true,
       process: emulatorProcess,
-      message: 'ROM launched',
-      pid: emulatorProcess.pid
+      message: "ROM launched",
+      pid: emulatorProcess.pid,
     };
   }
 
@@ -212,12 +199,7 @@ export abstract class Emulator {
    * Get save comparison info for user choice
    * Override in subclasses that support save choice
    */
-  public async getSaveComparison(
-    rom: Rom,
-    saveDir: string,
-    rommAPI: RommApi | null,
-    saveManager: SaveManager
-  ): Promise<SaveComparisonResult> {
+  public async getSaveComparison(rom: Rom, saveDir: string, rommAPI: RommApi | null, saveManager: SaveManager): Promise<SaveComparisonResult> {
     return {
       success: true,
       data: {
@@ -225,8 +207,8 @@ export abstract class Emulator {
         hasCloud: false,
         localSave: null,
         cloudSaves: [],
-        recommendation: 'none'
-      }
+        recommendation: "none",
+      },
     };
   }
 
@@ -234,13 +216,7 @@ export abstract class Emulator {
    * Handle save choice selection
    * Override in subclasses that support save choice
    */
-  public async handleSaveChoice(
-    romData: any,
-    saveChoice: string,
-    saveManager: SaveManager,
-    rommAPI: RommApi | null,
-    saveId?: number
-  ): Promise<SaveChoiceResult> {
+  public async handleSaveChoice(romData: any, saveChoice: string, saveManager: SaveManager, rommAPI: RommApi | null, saveId?: number): Promise<SaveChoiceResult> {
     // Default implementation - just launch normally
     return this.launch(romData.rom, romData.saveDir);
   }
@@ -255,7 +231,7 @@ export abstract class Emulator {
     if (!emulatorPath) {
       return {
         success: false,
-        error: `Emulator path not configured for ${this.name}`
+        error: `Emulator path not configured for ${this.name}`,
       };
     }
 
@@ -264,12 +240,12 @@ export abstract class Emulator {
     // Launch emulator without ROM for configuration
     const emulatorProcess = spawn(emulatorPath, [], {
       detached: false,
-      stdio: 'ignore'
+      stdio: "ignore",
     });
 
     return {
       success: true,
-      pid: emulatorProcess.pid
+      pid: emulatorProcess.pid,
     };
   }
 }

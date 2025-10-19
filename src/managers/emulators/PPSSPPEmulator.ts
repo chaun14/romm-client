@@ -14,10 +14,10 @@ export class PPSSPPEmulator extends Emulator {
   constructor(config: EmulatorConfig) {
     super({
       ...config,
-      platform: 'psp',
-      name: 'PPSSPP',
+      platform: "psp",
+      name: "PPSSPP",
       extensions: PPSSPPEmulator.getExtensions(),
-      args: ['{rom}']
+      args: ["{rom}"],
     });
   }
 
@@ -25,28 +25,28 @@ export class PPSSPPEmulator extends Emulator {
    * Get supported file extensions for PPSSPP
    */
   public static getExtensions(): string[] {
-    return ['.iso', '.cso', '.pbp', '.elf'];
+    return [".iso", ".cso", ".pbp", ".elf"];
   }
 
   /**
    * Get supported platforms for PPSSPP
    */
   public static getPlatforms(): string[] {
-    return ['psp'];
+    return ["psp"];
   }
 
   /**
    * Get the RomM slug for PPSSPP
    */
   public static getRommSlug(): string {
-    return 'psp';
+    return "psp";
   }
 
   /**
    * Get default arguments for PPSSPP
    */
   public static getDefaultArgs(): string[] {
-    return ['{rom}'];
+    return ["{rom}"];
   }
 
   /**

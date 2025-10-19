@@ -147,7 +147,7 @@ export class EmulatorManager {
     // Get the configured path
     let emulatorPath = spec.path;
     if (this.rommClient.settings?.emulators) {
-      const savedConfig = this.rommClient.settings.emulators.find(e => e.name === emulatorKey);
+      const savedConfig = this.rommClient.settings.emulators.find((e) => e.name === emulatorKey);
       if (savedConfig) {
         emulatorPath = savedConfig.path;
       }
@@ -163,7 +163,7 @@ export class EmulatorManager {
       platform: spec.rommSlug,
       name: spec.name,
       extensions: spec.extensions,
-      args: spec.defaultArgs
+      args: spec.defaultArgs,
     };
 
     const emulator = new spec.class(config);
@@ -188,7 +188,7 @@ export class EmulatorManager {
     }
 
     if (!this.rommClient.saveManager) {
-      return { success: false, error: 'SaveManager not available' };
+      return { success: false, error: "SaveManager not available" };
     }
 
     try {
@@ -208,7 +208,7 @@ export class EmulatorManager {
     }
 
     if (!this.rommClient.saveManager) {
-      return { success: false, error: 'SaveManager not available' };
+      return { success: false, error: "SaveManager not available" };
     }
 
     try {
@@ -228,7 +228,7 @@ export class EmulatorManager {
     }
 
     if (!this.rommClient.saveManager) {
-      return { success: false, error: 'SaveManager not available' };
+      return { success: false, error: "SaveManager not available" };
     }
 
     try {
@@ -257,7 +257,7 @@ export class EmulatorManager {
       const result = await emulator.configureEmulatorInConfigMode();
       return {
         success: result.success,
-        error: result.error
+        error: result.error,
       };
     } catch (error: any) {
       console.error(`[EmulatorManager] Failed to start ${emulatorKey} in configuration mode:`, error);

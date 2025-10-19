@@ -1,10 +1,10 @@
-import { Emulator, EmulatorConfig, EnvironmentSetupResult, SaveComparisonResult, SaveSyncResult, SaveChoiceResult } from './Emulator';
-import { Rom } from '../../types/RommApi';
-import { RommApi } from '../../api/RommApi';
-import { SaveManager } from '../SaveManager';
-import * as fs from 'fs/promises';
-import * as fsSync from 'fs';
-import * as path from 'path';
+import { Emulator, EmulatorConfig, EnvironmentSetupResult, SaveComparisonResult, SaveSyncResult, SaveChoiceResult } from "./Emulator";
+import { Rom } from "../../types/RommApi";
+import { RommApi } from "../../api/RommApi";
+import { SaveManager } from "../SaveManager";
+import * as fs from "fs/promises";
+import * as fsSync from "fs";
+import * as path from "path";
 
 /**
  * Dolphin (Wii/GameCube) Emulator implementation
@@ -13,10 +13,10 @@ export class DolphinEmulator extends Emulator {
   constructor(config: EmulatorConfig) {
     super({
       ...config,
-      platform: 'wii',
-      name: 'Dolphin',
+      platform: "wii",
+      name: "Dolphin",
       extensions: DolphinEmulator.getExtensions(),
-      args: ['-u', '{userDir}', '-e', '{rom}']
+      args: ["-u", "{userDir}", "-e", "{rom}"],
     });
   }
 
@@ -24,28 +24,28 @@ export class DolphinEmulator extends Emulator {
    * Get supported file extensions for Dolphin
    */
   public static getExtensions(): string[] {
-    return ['.iso', '.gcm', '.wbfs', '.ciso', '.gcz'];
+    return [".iso", ".gcm", ".wbfs", ".ciso", ".gcz"];
   }
 
   /**
    * Get supported platforms for Dolphin
    */
   public static getPlatforms(): string[] {
-    return ['wii', 'gamecube'];
+    return ["wii", "gamecube"];
   }
 
   /**
    * Get the RomM slug for Dolphin
    */
   public static getRommSlug(): string {
-    return 'wii';
+    return "wii";
   }
 
   /**
    * Get default arguments for Dolphin
    */
   public static getDefaultArgs(): string[] {
-    return ['-u', '{userDir}', '-e', '{rom}'];
+    return ["-u", "{userDir}", "-e", "{rom}"];
   }
 
   /**
@@ -60,10 +60,8 @@ export class DolphinEmulator extends Emulator {
    * Override to handle custom user directory
    */
   public prepareArgs(romPath: string, userDir: string): string[] {
-    return this.defaultArgs.map(arg =>
-      arg.replace('{rom}', romPath)
-        .replace('{userDir}', userDir)
-        .replace('{save}', userDir) // For compatibility
+    return this.defaultArgs.map(
+      (arg) => arg.replace("{rom}", romPath).replace("{userDir}", userDir).replace("{save}", userDir) // For compatibility
     );
   }
 
@@ -76,17 +74,18 @@ export class DolphinEmulator extends Emulator {
     // Wii games are generally larger and have different characteristics
 
     // Check platform info first
-    if (rom.platform_slug && rom.platform_slug.toLowerCase().includes('wii')) {
+    if (rom.platform_slug && rom.platform_slug.toLowerCase().includes("wii")) {
       return true;
     }
-    if (rom.platform_slug && rom.platform_slug.toLowerCase().includes('gamecube')) {
+    if (rom.platform_slug && rom.platform_slug.toLowerCase().includes("gamecube")) {
       return false;
     }
 
     // Check file size - Wii games are typically larger than GameCube games
     // Wii games are usually 4.7GB+, GameCube games are usually 1.4GB or less
     const fileSize = rom.fs_size_bytes;
-    if (fileSize && fileSize > 2000000000) { // 2GB threshold
+    if (fileSize && fileSize > 2000000000) {
+      // 2GB threshold
       return true;
     }
 
@@ -94,12 +93,7 @@ export class DolphinEmulator extends Emulator {
     return true;
   }
 
-  public async setupEnvironment(
-    rom: Rom,
-    saveDir: string,
-    rommAPI: RommApi | null,
-    saveManager: SaveManager
-  ): Promise<EnvironmentSetupResult> {
+  public async setupEnvironment(rom: Rom, saveDir: string, rommAPI: RommApi | null, saveManager: SaveManager): Promise<EnvironmentSetupResult> {
     try {
       // Use saveDir directly as the user directory for this ROM session
       const tempUserDir = saveDir;
@@ -107,12 +101,12 @@ export class DolphinEmulator extends Emulator {
 
       // Determine if this is a Wii or GameCube game
       const isWiiGame = this.isWiiGame(rom);
-      console.log(`Game type: ${isWiiGame ? 'Wii' : 'GameCube'}`);
+      console.log(`Game type: ${isWiiGame ? "Wii" : "GameCube"}`);
 
       if (isWiiGame) {
         // Wii games use title-based save directories
-        const wiiSaveDir = path.join(tempUserDir, 'Wii');
-        const titleSaveDir = path.join(wiiSaveDir, 'title', '00000001', 'data');
+        const wiiSaveDir = path.join(tempUserDir, "Wii");
+        const titleSaveDir = path.join(wiiSaveDir, "title", "00000001", "data");
         await fs.mkdir(titleSaveDir, { recursive: true });
 
         console.log(`Wii save directory: ${titleSaveDir}`);
@@ -121,12 +115,12 @@ export class DolphinEmulator extends Emulator {
           success: true,
           userDir: tempUserDir,
           saveDir: wiiSaveDir,
-          gameType: 'wii'
+          gameType: "wii",
         };
       } else {
         // GameCube games use memory card saves
-        const gcSaveDir = path.join(tempUserDir, 'GC');
-        const memoryCardDir = path.join(gcSaveDir, 'USA'); // Assume USA region for now
+        const gcSaveDir = path.join(tempUserDir, "GC");
+        const memoryCardDir = path.join(gcSaveDir, "USA"); // Assume USA region for now
         await fs.mkdir(memoryCardDir, { recursive: true });
 
         console.log(`GC save directory: ${memoryCardDir}`);
@@ -135,14 +129,14 @@ export class DolphinEmulator extends Emulator {
           success: true,
           userDir: tempUserDir,
           saveDir: gcSaveDir,
-          gameType: 'gamecube'
+          gameType: "gamecube",
         };
       }
     } catch (error: any) {
       console.error(`Failed to setup Dolphin environment: ${error.message}`);
       return {
         success: false,
-        error: `Dolphin setup failed: ${error.message}`
+        error: `Dolphin setup failed: ${error.message}`,
       };
     }
   }
@@ -187,25 +181,18 @@ export class DolphinEmulator extends Emulator {
     }
   }
 
-  public async getSaveComparison(
-    rom: Rom,
-    saveDir: string,
-    rommAPI: RommApi | null,
-    saveManager: SaveManager
-  ): Promise<SaveComparisonResult> {
+  public async getSaveComparison(rom: Rom, saveDir: string, rommAPI: RommApi | null, saveManager: SaveManager): Promise<SaveComparisonResult> {
     try {
       // Determine if this is a Wii or GameCube game
       const isWiiGame = this.isWiiGame(rom);
 
       // Compare saves in the entire Wii or GC directory
-      const dolphinSaveDir = isWiiGame ?
-        path.join(saveDir, 'Wii') :
-        path.join(saveDir, 'GC');
+      const dolphinSaveDir = isWiiGame ? path.join(saveDir, "Wii") : path.join(saveDir, "GC");
 
       console.log(`Comparing local and cloud saves for ROM ${rom.id}...`);
 
       if (!rommAPI) {
-        throw new Error('RomM API is not available');
+        throw new Error("RomM API is not available");
       }
 
       // Check for local saves
@@ -230,37 +217,30 @@ export class DolphinEmulator extends Emulator {
           hasCloud,
           localSave: hasLocal ? dolphinSaveDir : null,
           cloudSaves: hasCloud ? cloudResult.data : [],
-          recommendation: hasLocal ? 'local' : (hasCloud ? 'cloud' : 'none')
-        }
+          recommendation: hasLocal ? "local" : hasCloud ? "cloud" : "none",
+        },
       };
     } catch (error: any) {
       console.error(`Error comparing saves for ROM ${rom.id}:`, error);
       return {
         success: false,
-        error: error.message
+        error: error.message,
       };
     }
   }
 
-  public async handleSaveSync(
-    rom: Rom,
-    saveDir: string,
-    rommAPI: RommApi | null,
-    saveManager: SaveManager
-  ): Promise<SaveSyncResult> {
+  public async handleSaveSync(rom: Rom, saveDir: string, rommAPI: RommApi | null, saveManager: SaveManager): Promise<SaveSyncResult> {
     try {
       // Determine if this is a Wii or GameCube game
       const isWiiGame = this.isWiiGame(rom);
 
       // Upload the entire Wii or GC directory
-      const dolphinSaveDir = isWiiGame ?
-        path.join(saveDir, 'Wii') :
-        path.join(saveDir, 'GC');
+      const dolphinSaveDir = isWiiGame ? path.join(saveDir, "Wii") : path.join(saveDir, "GC");
 
       console.log(`Uploading saves from ${dolphinSaveDir} to RomM...`);
 
       if (!rommAPI) {
-        throw new Error('RomM API is not available');
+        throw new Error("RomM API is not available");
       }
 
       // For now, just log that we would upload saves
@@ -269,47 +249,39 @@ export class DolphinEmulator extends Emulator {
 
       return {
         success: true,
-        message: 'Save sync completed (placeholder)'
+        message: "Save sync completed (placeholder)",
       };
     } catch (saveError: any) {
       console.error(`Error uploading saves: ${saveError.message}`);
       return {
         success: false,
-        error: saveError.message
+        error: saveError.message,
       };
     }
   }
 
-  public async handleSaveChoice(
-    romData: any,
-    saveChoice: string,
-    saveManager: SaveManager,
-    rommAPI: RommApi | null,
-    saveId?: number
-  ): Promise<SaveChoiceResult> {
+  public async handleSaveChoice(romData: any, saveChoice: string, saveManager: SaveManager, rommAPI: RommApi | null, saveId?: number): Promise<SaveChoiceResult> {
     try {
       const { rom, finalRomPath, saveDir, gameType, userDir } = romData;
 
-      console.log(`User chose save: ${saveChoice}${saveId ? ` (ID: ${saveId})` : ''}`);
+      console.log(`User chose save: ${saveChoice}${saveId ? ` (ID: ${saveId})` : ""}`);
 
       // Determine Dolphin save directory (same as ROM save directory now)
-      const dolphinSaveDir = gameType === 'wii' ?
-        path.join(userDir, 'Wii') :
-        path.join(userDir, 'GC');
+      const dolphinSaveDir = gameType === "wii" ? path.join(userDir, "Wii") : path.join(userDir, "GC");
 
       // Handle save loading based on choice
-      if (saveChoice === 'cloud') {
-        console.log(`Loading cloud save${saveId ? ` #${saveId}` : ''}...`);
+      if (saveChoice === "cloud") {
+        console.log(`Loading cloud save${saveId ? ` #${saveId}` : ""}...`);
         if (!rommAPI) {
-          throw new Error('RomM API is not available');
+          throw new Error("RomM API is not available");
         }
         // For now, just log that we would download saves
         // TODO: Implement proper cloud save download
         console.log(`Cloud save download not yet implemented for Dolphin emulator`);
-      } else if (saveChoice === 'local') {
+      } else if (saveChoice === "local") {
         console.log(`Using existing local save`);
         // Local saves should already be in the Dolphin directory
-      } else if (saveChoice === 'none') {
+      } else if (saveChoice === "none") {
         console.log(`Starting with no save (fresh start)`);
         // Clear the Dolphin save directory
         await this.clearSaveDirectories([dolphinSaveDir]);
@@ -322,7 +294,7 @@ export class DolphinEmulator extends Emulator {
 
       // Monitor process to upload saves when it closes
       if (launchResult.process) {
-        launchResult.process.on('exit', async (code) => {
+        launchResult.process.on("exit", async (code) => {
           console.log(`Dolphin closed with code ${code}`);
 
           // Sync saves back to ROM directory and upload to RomM
@@ -337,12 +309,12 @@ export class DolphinEmulator extends Emulator {
         message: `ROM launched: ${rom.name}`,
         pid: launchResult.process ? launchResult.process.pid : undefined,
         romPath: finalRomPath,
-        saveDir: saveDir
+        saveDir: saveDir,
       };
     } catch (error: any) {
       return {
         success: false,
-        error: error.message
+        error: error.message,
       };
     }
   }
