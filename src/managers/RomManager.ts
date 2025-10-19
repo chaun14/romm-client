@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import AdmZip from "adm-zip";
 
 import { RommClient } from "../RomMClient";
 import { LocalRom, Rom } from "../types/RommApi";
@@ -97,32 +98,63 @@ export class RomManager {
 
   private async checkRomIntegrity(rom: LocalRom): Promise<boolean> {
     // Check integrity for all files in the localPath folder
-    let ignoredExtensions = [".jpg"];
+    let ignoredExtensions = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".txt", ".nfo", ".md", ".7z", ".rar", ".pdf"];
     if (!rom.localFiles || rom.localFiles.length === 0) return false;
+
+    // Check if there's a zip file in the ROM's files list
+    const zipFile = Array.isArray(rom.files) ? rom.files.find((f) => f.file_name.endsWith(".zip")) : undefined;
+    let useZipHash = false;
+    let zipHashParams;
+
+    if (zipFile) {
+      // Use the zip file's hash for integrity checking of extracted files
+      zipHashParams = {
+        crc_hash: zipFile.crc_hash,
+        md5_hash: zipFile.md5_hash,
+        sha1_hash: zipFile.sha1_hash,
+      };
+      useZipHash = true;
+      console.log(`[ROM INTEGRITY] Found zip file ${zipFile.file_name}, using its hash for integrity checking`);
+    }
+
     let allValid = true;
     for (const filePath of rom.localFiles) {
       if (ignoredExtensions.some((ext) => filePath.endsWith(ext))) {
         console.log(`[ROM INTEGRITY] Ignoring integrity check for file: ${filePath}`);
         continue;
       }
-      // Find the file object in rom.files that matches this filePath
-      const fileName = path.basename(filePath);
-      const fileObj = Array.isArray(rom.files) ? rom.files.find(f => f.file_name === fileName) : undefined;
-      let hashParams;
-      if (fileObj) {
-        hashParams = {
-          crc_hash: fileObj.crc_hash,
-          md5_hash: fileObj.md5_hash,
-          sha1_hash: fileObj.sha1_hash
-        };
-      } else {
-        // fallback to ROM-level hash if not found
-        hashParams = {
-          crc_hash: rom.crc_hash,
-          md5_hash: rom.md5_hash,
-          sha1_hash: rom.sha1_hash
-        };
+
+      // Skip zip files themselves if we're using zip hash
+      if (useZipHash && filePath.endsWith(".zip")) {
+        console.log(`[ROM INTEGRITY] Skipping zip file integrity check (using zip hash for others): ${filePath}`);
+        continue;
       }
+
+      let hashParams;
+      if (useZipHash && zipHashParams) {
+        // Use zip file's hash for all extracted files
+        hashParams = zipHashParams;
+        console.log(`[ROM INTEGRITY] Using zip hash for file: ${filePath}`);
+      } else {
+        // Find the file object in rom.files that matches this filePath
+        const fileName = path.basename(filePath);
+        const fileObj = Array.isArray(rom.files) ? rom.files.find((f) => f.file_name === fileName) : undefined;
+        if (fileObj) {
+          hashParams = {
+            crc_hash: fileObj.crc_hash,
+            md5_hash: fileObj.md5_hash,
+            sha1_hash: fileObj.sha1_hash,
+          };
+        } else {
+          // fallback to ROM-level hash if not found
+          hashParams = {
+            crc_hash: rom.crc_hash,
+            md5_hash: rom.md5_hash,
+            sha1_hash: rom.sha1_hash,
+          };
+        }
+      }
+
       let result = await HashCalculator.verifyFileIntegrity(filePath, hashParams);
       if (!result.isValid) {
         allValid = false;
@@ -189,6 +221,29 @@ export class RomManager {
         localRom.localPath = romEmulatorPath;
         localRom.localFiles = files.map((f) => path.join(romEmulatorPath, f));
       }
+
+      // if we've downloaded a zip file among the files, we need to extract it
+      const zipFiles = localRom.files.filter((f) => f.file_name.endsWith(".zip"));
+      for (const zipFile of zipFiles) {
+        const zipFilePath = path.join(localRom.localPath, zipFile.file_name);
+        const zip = new AdmZip(zipFilePath);
+        let zipEntries = await zip.getEntries();
+        console.log("[LAUNCH]" + `Extracting zip file: ${zipFilePath} with ${zipEntries.length} entries`);
+
+        // extract all entries in the root of the localRom folder
+        await zip.extractAllTo(localRom.localPath, true);
+
+        for (const entry of zipEntries) {
+          console.log("[LAUNCH]" + `Extracted entry: ${entry.entryName} to ${localRom.localPath}`);
+          if (!localRom.localFiles) localRom.localFiles = [];
+          localRom.localFiles.push(path.join(localRom.localPath, entry.entryName));
+        }
+
+        // delete the zip file after extraction
+        // await fs.promises.unlink(zipFilePath);
+        // console.log("[LAUNCH]" + `Extracted and deleted zip file: ${zipFilePath}`);
+      }
+
       let isValid = await this.checkRomIntegrity(localRom);
       if (!isValid) {
         console.log("[LAUNCH]" + `Downloaded ROM is invalid: ${localRom.name} (ID: ${localRom.id})`);
