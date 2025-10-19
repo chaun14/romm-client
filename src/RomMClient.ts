@@ -19,6 +19,7 @@ export class RommClient extends BrowserWindow {
   public romManager: RomManager | null = null;
   private romsFolder: string | null = null;
   private savesFolder: string | null = null;
+  private emulatorConfigsFolder: string | null = null;
 
   constructor(options?: Electron.BrowserWindowConstructorOptions) {
     // Default options for the main window
@@ -261,6 +262,13 @@ export class RommClient extends BrowserWindow {
       await fs.mkdirSync(savesDir, { recursive: true });
     }
     this.savesFolder = savesDir;
+
+    // same for the emulator configs folder
+    const emulatorConfigsDir = path.join(romPath, "romm-client", "emulatorsConfig");
+    if (!fs.existsSync(emulatorConfigsDir)) {
+      await fs.mkdirSync(emulatorConfigsDir, { recursive: true });
+    }
+    this.emulatorConfigsFolder = emulatorConfigsDir;
   }
 
   getRomFolder() {
@@ -269,6 +277,10 @@ export class RommClient extends BrowserWindow {
 
   getSavesFolder() {
     return this.savesFolder;
+  }
+
+  getEmulatorConfigsFolder() {
+    return this.emulatorConfigsFolder;
   }
 
   public async sleep(ms: number): Promise<void> {

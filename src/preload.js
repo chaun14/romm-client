@@ -65,6 +65,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
             ipcRenderer.invoke('emulator:launch-with-save-choice', { romData, saveChoice, saveId }),
         configure: (platform, emulatorPath) =>
             ipcRenderer.invoke('emulator:configure', { platform, emulatorPath }),
+        configureEmulator: (emulatorKey, emulatorPath) =>
+            ipcRenderer.invoke('emulator:configure-emulator', { emulatorKey, emulatorPath }),
         getConfigs: () => ipcRenderer.invoke('emulator:get-configs'),
         saveConfig: (emulatorKey, path) => ipcRenderer.invoke('emulator:saveConfig', { emulatorKey, path }),
         isPlatformSupported: (platform) => ipcRenderer.invoke('emulator:is-platform-supported', platform),

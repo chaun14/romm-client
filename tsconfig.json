@@ -32,7 +32,7 @@
     "old/main.js",
     "old/emulator-manager.js",
     "old/save-manager.js"
-  ],
+, "old/dolphin-emulator.js", "old/emulator.js"  ],
   "exclude": [
     "node_modules",
     "out"

@@ -1259,18 +1259,46 @@ function displayEmulatorsConfig(configs, supportedEmulators) {
       <div class="emulator-item">
         <h4>${emulator.name}</h4>
         <p class="emulator-platforms">Supports: ${emulator.platforms.join(', ').toUpperCase()}</p>
-        <input
-          type="text"
-          data-emulator="${emulatorKey}"
-          value="${configs[emulatorKey]?.path || ''}"
-          placeholder="C:\\emulators\\${emulator.name}\\${emulator.name}.exe"
-        >
+        <div class="emulator-config-row">
+          <input
+            type="text"
+            data-emulator="${emulatorKey}"
+            value="${configs[emulatorKey]?.path || ''}"
+            placeholder="C:\\emulators\\${emulator.name}\\${emulator.name}.exe"
+          >
+          <button class="btn-config-emulator" data-emulator="${emulatorKey}" title="Configure ${emulator.name}">⚙️ Configure</button>
+        </div>
       </div>
     `).join('')}
     <button class="btn-primary" id="save-emulators-btn" style="margin-top: 1rem;">Save</button>
   `;
 
     container.innerHTML = html;
+
+    // Add event listeners for configure buttons
+    container.querySelectorAll('.btn-config-emulator').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            const emulatorKey = e.target.dataset.emulator;
+            const emulatorPath = container.querySelector(`input[data-emulator="${emulatorKey}"]`).value.trim();
+
+            if (!emulatorPath) {
+                showNotification(`Please set the path for ${supportedEmulators[emulatorKey].name} first`, 'error');
+                return;
+            }
+
+            try {
+                showNotification(`Starting ${supportedEmulators[emulatorKey].name} in configuration mode...`, 'info');
+                const result = await window.electronAPI.emulator.configureEmulator(emulatorKey, emulatorPath);
+                if (result.success) {
+                    showNotification(`${supportedEmulators[emulatorKey].name} configuration completed!`, 'success');
+                } else {
+                    showNotification(`Configuration failed: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Error: ${error.message}`, 'error');
+            }
+        });
+    });
 
     // Add auto-save on input change
     const inputs = container.querySelectorAll('input');

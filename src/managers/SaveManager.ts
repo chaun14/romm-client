@@ -14,12 +14,11 @@ export class SaveManager {
   async checkSaves(rom: Rom) {
     try {
       const platform = rom.platform_slug;
-      const internalKey = this.emulatorManager.getInternalKey(platform);
       const fs = require("fs");
       const path = require("path");
 
       // Check local saves
-      const saveDir = path.join(process.env.APPDATA || process.env.HOME, "romm-client", "saves", internalKey || platform, `rom_${rom.id}`);
+      const saveDir = path.join(process.env.APPDATA || process.env.HOME, "romm-client", "saves", platform, `rom_${rom.id}`);
 
       let hasLocal = false;
       if (fs.existsSync(saveDir)) {

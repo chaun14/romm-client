@@ -261,6 +261,11 @@ export class IPCManager {
       return { success: true };
     });
 
+    ipcMain.handle("emulator:configure-emulator", async (event, { emulatorKey, emulatorPath }) => {
+      console.log("[IPC]" + `Configuring emulator: ${emulatorKey} at path: ${emulatorPath}`);
+      return this.emulatorManager.configureEmulatorInConfigMode(emulatorKey, emulatorPath);
+    });
+
     ipcMain.handle("rom:check-cache-integrity", async (event, rom) => {
       console.log("[IPC]" + `Checking cache integrity for ROM: ${rom.name} (ID: ${rom.id})`);
       // Temporary handler - cache functionality not implemented yet

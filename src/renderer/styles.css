@@ -577,6 +577,34 @@ body {
     font-size: 0.875rem;
 }
 
+.emulator-config-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.emulator-config-row input {
+    flex: 1;
+}
+
+.btn-config-emulator {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.375rem;
+    background-color: var(--bg-darker);
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.btn-config-emulator:hover {
+    background-color: var(--accent-color);
+    color: var(--text-primary);
+    border-color: var(--accent-color);
+}
+
 /* Settings Form */
 .settings-form {
     max-width: 500px;

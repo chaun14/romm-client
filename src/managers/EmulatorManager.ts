@@ -1,10 +1,25 @@
-import { RommClient } from "../RomMClient";
+import fs from "fs";
+import path from "path";
+import { spawn } from "child_process";
 
-type EmulatorClass = new (...args: any[]) => any;
+import { RommClient } from "../RomMClient";
+import { Emulator, DolphinEmulator, PPSSPPEmulator, EmulatorConfig } from "./emulators";
+
+type EmulatorClass = new (config: EmulatorConfig) => Emulator;
 
 interface EmulatorSpec {
   name: string;
-  //  class: EmulatorClass;
+  class: EmulatorClass;
+  platforms: string[];
+  rommSlug: string;
+  defaultArgs: string[];
+  extensions: string[];
+  supportsSaves: boolean;
+  path: string;
+}
+
+interface PublicEmulatorSpec {
+  name: string;
   platforms: string[];
   rommSlug: string;
   defaultArgs: string[];
@@ -16,22 +31,22 @@ interface EmulatorSpec {
 let EMULATORS: Record<string, EmulatorSpec> = {
   ppsspp: {
     name: "PPSSPP",
-    //   class: PPSSPPEmulator,
-    platforms: ["psp"],
-    rommSlug: "psp",
-    defaultArgs: ["{rom}"],
-    extensions: [".iso", ".cso", ".pbp", ".elf"],
-    supportsSaves: true,
+    class: PPSSPPEmulator,
+    platforms: PPSSPPEmulator.getPlatforms(),
+    rommSlug: PPSSPPEmulator.getRommSlug(),
+    defaultArgs: PPSSPPEmulator.getDefaultArgs(),
+    extensions: PPSSPPEmulator.getExtensions(),
+    supportsSaves: PPSSPPEmulator.getSupportsSaves(),
     path: "",
   },
   dolphin: {
     name: "Dolphin",
-    // class: DolphinEmulator,
-    platforms: ["wii", "gamecube"],
-    rommSlug: "wii", // Dolphin peut gérer Wii et GameCube, mais on utilise 'wii' comme slug principal
-    defaultArgs: ["-e", "{rom}"],
-    extensions: [".iso", ".gcm", ".wbfs", ".ciso", ".gcz"],
-    supportsSaves: true,
+    class: DolphinEmulator,
+    platforms: DolphinEmulator.getPlatforms(),
+    rommSlug: DolphinEmulator.getRommSlug(),
+    defaultArgs: DolphinEmulator.getDefaultArgs(),
+    extensions: DolphinEmulator.getExtensions(),
+    supportsSaves: DolphinEmulator.getSupportsSaves(),
     path: "",
   },
 };
@@ -39,17 +54,32 @@ let EMULATORS: Record<string, EmulatorSpec> = {
 export class EmulatorManager {
   private supportedEmulators: Record<string, EmulatorSpec> = EMULATORS;
   private rommClient: RommClient;
+  private emulatorInstances: Record<string, Emulator> = {};
 
   constructor(rommClient: RommClient) {
     this.rommClient = rommClient;
   }
 
   /**
-   * Return complete supported emulators info
+   * Return complete supported emulators info (without class references for IPC compatibility)
    */
-  getSupportedEmulators() {
+  getSupportedEmulators(): Record<string, PublicEmulatorSpec> {
     //  console.log("EmulatorManager: getSupportedEmulators returning:", this.supportedEmulators);
-    return this.supportedEmulators;
+    const publicEmulators: Record<string, PublicEmulatorSpec> = {};
+
+    for (const [key, emulator] of Object.entries(this.supportedEmulators)) {
+      publicEmulators[key] = {
+        name: emulator.name,
+        platforms: emulator.platforms,
+        rommSlug: emulator.rommSlug,
+        defaultArgs: emulator.defaultArgs,
+        extensions: emulator.extensions,
+        supportsSaves: emulator.supportsSaves,
+        path: emulator.path,
+      };
+    }
+
+    return publicEmulators;
   }
 
   getConfigurations(): Record<string, any> {
@@ -102,23 +132,136 @@ export class EmulatorManager {
   }
 
   /**
-   * Get internal key from RomM slug or platform
+   * Get or create an emulator instance
    */
-  getInternalKey(platform: string) {
-    // If already an internal key, return it
-    if (platform in this.supportedEmulators) {
-      return platform;
+  private getEmulatorInstance(emulatorKey: string): Emulator | null {
+    if (this.emulatorInstances[emulatorKey]) {
+      return this.emulatorInstances[emulatorKey];
     }
-    // Otherwise search by rommSlug
-    for (const [key, emulator] of Object.entries(this.supportedEmulators)) {
-      if (emulator.rommSlug === platform) {
-        return key;
-      }
-      // Or search in supported platforms
-      if (emulator.platforms.includes(platform)) {
-        return key;
+
+    const spec = this.supportedEmulators[emulatorKey];
+    if (!spec) {
+      return null;
+    }
+
+    // Get the configured path
+    let emulatorPath = spec.path;
+    if (this.rommClient.settings?.emulators) {
+      const savedConfig = this.rommClient.settings.emulators.find(e => e.name === emulatorKey);
+      if (savedConfig) {
+        emulatorPath = savedConfig.path;
       }
     }
-    return null;
+
+    if (!emulatorPath) {
+      return null;
+    }
+
+    // Create emulator instance
+    const config: EmulatorConfig = {
+      path: emulatorPath,
+      platform: spec.rommSlug,
+      name: spec.name,
+      extensions: spec.extensions,
+      args: spec.defaultArgs
+    };
+
+    const emulator = new spec.class(config);
+    this.emulatorInstances[emulatorKey] = emulator;
+    return emulator;
+  }
+
+  /**
+   * Get emulator instance for advanced operations
+   */
+  getEmulator(emulatorKey: string): Emulator | null {
+    return this.getEmulatorInstance(emulatorKey);
+  }
+
+  /**
+   * Setup emulator environment for a ROM
+   */
+  async setupEmulatorEnvironment(emulatorKey: string, rom: any, saveDir: string): Promise<{ success: boolean; error?: string; [key: string]: any }> {
+    const emulator = this.getEmulatorInstance(emulatorKey);
+    if (!emulator) {
+      return { success: false, error: `Emulator ${emulatorKey} not configured` };
+    }
+
+    if (!this.rommClient.saveManager) {
+      return { success: false, error: 'SaveManager not available' };
+    }
+
+    try {
+      return await emulator.setupEnvironment(rom, saveDir, this.rommClient.rommApi, this.rommClient.saveManager);
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Get save comparison for an emulator and ROM
+   */
+  async getSaveComparison(emulatorKey: string, rom: any, saveDir: string): Promise<any> {
+    const emulator = this.getEmulatorInstance(emulatorKey);
+    if (!emulator) {
+      return { success: false, error: `Emulator ${emulatorKey} not configured` };
+    }
+
+    if (!this.rommClient.saveManager) {
+      return { success: false, error: 'SaveManager not available' };
+    }
+
+    try {
+      return await emulator.getSaveComparison(rom, saveDir, this.rommClient.rommApi, this.rommClient.saveManager);
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Handle save synchronization for an emulator and ROM
+   */
+  async handleSaveSync(emulatorKey: string, rom: any, saveDir: string): Promise<any> {
+    const emulator = this.getEmulatorInstance(emulatorKey);
+    if (!emulator) {
+      return { success: false, error: `Emulator ${emulatorKey} not configured` };
+    }
+
+    if (!this.rommClient.saveManager) {
+      return { success: false, error: 'SaveManager not available' };
+    }
+
+    try {
+      return await emulator.handleSaveSync(rom, saveDir, this.rommClient.rommApi, this.rommClient.saveManager);
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Configure an emulator in configuration mode (without ROM)
+   */
+  async configureEmulatorInConfigMode(emulatorKey: string, emulatorPath?: string): Promise<{ success: boolean; error?: string }> {
+    const emulator = this.getEmulatorInstance(emulatorKey);
+    if (!emulator) {
+      return { success: false, error: `Emulator ${emulatorKey} not configured` };
+    }
+
+    // If a specific path is provided, temporarily override the configured path
+    if (emulatorPath) {
+      emulator.setExecutablePath(emulatorPath);
+    }
+
+    try {
+      // Use the new emulator class method
+      const result = await emulator.configureEmulatorInConfigMode();
+      return {
+        success: result.success,
+        error: result.error
+      };
+    } catch (error: any) {
+      console.error(`[EmulatorManager] Failed to start ${emulatorKey} in configuration mode:`, error);
+      return { success: false, error: error.message };
+    }
   }
 }
