@@ -91,11 +91,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
 
     // Download progress listener
-    onDownloadProgress: (callback) => {
-        ipcRenderer.on('download:progress', (event, progress) => callback(progress));
+    onRomDownloadProgress: (callback) => {
+        // console.log('[PRELOAD] Setting up rom:download-progress listener');
+        ipcRenderer.on('rom:download-progress', (event, progress) => {
+            //  console.log('[PRELOAD] Received rom:download-progress event:', progress);
+            callback(progress);
+        });
     },
     removeDownloadProgressListener: () => {
-        ipcRenderer.removeAllListeners('download:progress');
+        ipcRenderer.removeAllListeners('rom:download-progress');
     },
 
     // Download complete listener

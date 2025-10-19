@@ -1,4 +1,4 @@
-import { app, ipcMain } from "electron";
+import { app, ipcMain, BrowserWindow } from "electron";
 import { RommClient } from "../RomMClient";
 import { ProgressInfo, UpdateInfo } from "electron-updater/out/types";
 const { autoUpdater } = require("electron-updater");
@@ -211,7 +211,7 @@ export class IPCManager {
     ipcMain.handle("emulator:launch", async (event, { rom, emulatorPath }) => {
       // Create progress callback to send updates to renderer
       const onProgress = (progress) => {
-        event.sender.send("download:progress", progress);
+        event.sender.send("rom:download-progress", progress);
       };
 
       // Create save upload success callback
@@ -427,8 +427,11 @@ export class IPCManager {
     ipcMain.handle("roms:launch", async (event, { rom, emulatorPath }) => {
       console.log("[IPC]" + `Launching ROM: ${rom.name} (ID: ${rom.id})`);
       // Create progress callback to send updates to renderer
+      // Use event.sender instead of getAllWindows to ensure we send to the correct window
       const onProgress = (progress: any) => {
-        event.sender.send("download:progress", progress);
+        console.log("[IPC]" + `Launch progress for ROM: ${rom.name} (ID: ${rom.id}): ${JSON.stringify(progress)}`);
+        console.log("[IPC] Sending rom:download-progress event to frontend");
+        event.sender.send("rom:download-progress", progress);
       };
 
       // Create save upload success callback

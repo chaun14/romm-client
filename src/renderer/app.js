@@ -580,7 +580,7 @@ document.getElementById('cancel-download-btn').addEventListener('click', () => {
     if (isDownloading) {
         showNotification('Cancelling download...', 'info');
         hideDownloadProgressModal();
-        window.electronAPI.removeDownloadProgressListener();
+        window.electronAPI.removeDownloadProgressListener(); // Correct function name
         isDownloading = false;
     }
 });
@@ -593,16 +593,17 @@ async function launchRom(rom) {
 
     isDownloading = true;
 
-    // Setup download progress listener
-    window.electronAPI.onDownloadProgress((progress) => {
-        updateDownloadProgress(progress);
+    // Setup ROM download progress listener
+    window.electronAPI.onRomDownloadProgress((progress) => {
+        console.log('[FRONTEND] Received rom:download-progress', progress);
+        updateRomDownloadProgress(progress);
     });
 
     // Setup download complete listener
     window.electronAPI.onDownloadComplete((data) => {
         // Hide progress modal and remove listeners
         hideDownloadProgressModal();
-        window.electronAPI.removeDownloadProgressListener();
+        window.electronAPI.removeDownloadProgressListener(); // Correct function name
         window.electronAPI.removeDownloadCompleteListener();
 
         // ROM has been downloaded and cached, update cache status immediately
@@ -631,7 +632,7 @@ async function launchRom(rom) {
         if (!result.success) {
             // Hide modal and show error if launch failed to start
             hideDownloadProgressModal();
-            window.electronAPI.removeDownloadProgressListener();
+            window.electronAPI.removeDownloadProgressListener(); // Correct function name
             window.electronAPI.removeDownloadCompleteListener();
             showNotification(`Error: ${result.error}`, 'error');
             isDownloading = false;
@@ -639,7 +640,7 @@ async function launchRom(rom) {
     } catch (error) {
         console.error(`[Launch Error] Failed to start ROM launch ${rom.name}:`, error);
         hideDownloadProgressModal();
-        window.electronAPI.removeDownloadProgressListener();
+        window.electronAPI.removeDownloadProgressListener(); // Correct function name
         window.electronAPI.removeDownloadCompleteListener();
         showNotification(`Error: ${error.message}`, 'error');
         isDownloading = false;
@@ -668,26 +669,24 @@ function hideDownloadProgressModal() {
     isDownloading = false;
 }
 
-function updateDownloadProgress(progress) {
+// Update ROM download progress bar
+function updateRomDownloadProgress(progress) {
     const progressBar = document.getElementById('progress-bar-fill');
     const progressPercent = document.getElementById('progress-percent');
     const progressSize = document.getElementById('progress-size');
     const modalTitle = document.getElementById('progress-modal-title');
 
     if (progress.step === 'extracting') {
-        // Extraction progress
         modalTitle.textContent = 'Extracting ROM';
         progressBar.style.width = `${progress.percent}%`;
         progressPercent.textContent = progress.message;
         progressSize.textContent = '';
     } else if (progress.step === 'error') {
-        // Error state
         modalTitle.textContent = 'Error';
         progressPercent.textContent = progress.message;
         progressBar.style.width = '0%';
         progressSize.textContent = '';
     } else {
-        // Download progress (existing logic)
         modalTitle.textContent = 'Downloading ROM';
         progressBar.style.width = `${progress.percent}%`;
         if (progress.message === 'ROM already available') {
@@ -695,9 +694,25 @@ function updateDownloadProgress(progress) {
             progressSize.textContent = '';
         } else {
             progressPercent.textContent = `${progress.percent}%`;
-            progressSize.textContent = `${progress.downloaded} MB / ${progress.total} MB`;
+            let sizeText = `${progress.downloaded} MB / ${progress.total} MB`;
+            if (progress.totalFilesNumber && progress.currentFileNumber) {
+                sizeText += ` (File ${progress.currentFileNumber}/${progress.totalFilesNumber})`;
+            }
+            progressSize.textContent = sizeText;
         }
     }
+}
+
+// Update app update download progress bar (if used elsewhere)
+function updateAppUpdateProgress(percent, info) {
+    const progressBar = document.getElementById('progress-bar-fill');
+    const progressPercent = document.getElementById('progress-percent');
+    const modalTitle = document.getElementById('progress-modal-title');
+
+    modalTitle.textContent = 'Downloading Update';
+    progressBar.style.width = `${percent}%`;
+    progressPercent.textContent = `${percent}%`;
+    // Optionally display info if needed
 }
 
 function showSaveChoiceModal(saveComparison, romData) {
@@ -1259,29 +1274,21 @@ function displayEmulatorsConfig(configs, supportedEmulators) {
 
     // Add auto-save on input change
     const inputs = container.querySelectorAll('input');
-    inputs.forEach(input => {
-        input.addEventListener('blur', async () => {
-            const emulatorKey = input.dataset.emulator;
-            const path = input.value.trim();
-
-            // Save even if empty (to clear the path)
-            await window.electronAPI.emulator.saveConfig(emulatorKey, path);
-            console.log(`Auto-saved ${emulatorKey}: ${path}`);
-        });
-    });
+    // Autosave disabled, config is only saved when clicking Save
 
     document.getElementById('save-emulators-btn').addEventListener('click', async () => {
         const inputs = container.querySelectorAll('input');
-
         for (const input of inputs) {
             const emulatorKey = input.dataset.emulator;
             const path = input.value.trim();
-
-            // Save even if empty (to clear the path)
             await window.electronAPI.emulator.saveConfig(emulatorKey, path);
         }
-
         showNotification('Configuration saved!', 'success');
+        // Always reload platforms after saving emulator config
+        // Switch to platforms view and reload
+        document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+        document.getElementById('platforms-view').classList.add('active');
+        loadPlatforms();
     });
 }
 
@@ -1399,6 +1406,14 @@ async function loadStatsBar() {
 
 // Initialization
 document.addEventListener('DOMContentLoaded', async () => {
+    // Attach download:progress listener globally
+    console.log('[FRONTEND] Attaching download:progress listener at app startup');
+    window.electronAPI.removeDownloadProgressListener();
+    window.electronAPI.onRomDownloadProgress((progress) => {
+        console.log('[FRONTEND] Received rom:download-progress', progress);
+        updateDownloadProgress(progress);
+    });
+    console.log('[FRONTEND] download:progress listener attached');
     // Setup navigation between views
     console.log('Setting up navigation...');
     console.log('Available views:', document.querySelectorAll('.view').length);
@@ -1697,12 +1712,18 @@ async function downloadUpdate() {
 function updateDownloadProgress(percent) {
     const progressFill = document.getElementById('update-progress-fill');
     const progressPercent = document.getElementById('update-progress-percent');
+    const progressText = document.getElementById('update-progress-text');
 
     if (progressFill) {
         progressFill.style.width = `${percent}%`;
     }
     if (progressPercent) {
         progressPercent.textContent = `${Math.round(percent)}%`;
+    }
+    // Affiche la taille téléchargée et totale si possible
+    if (progressText && arguments.length > 1) {
+        const info = arguments[1];
+        progressText.textContent = `${info.downloaded} MB / ${info.total} MB (${Math.round(percent)}%)`;
     }
 }
 
