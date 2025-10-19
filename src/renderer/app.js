@@ -285,6 +285,7 @@ async function displayRoms(roms) {
         window.electronAPI.emulator.getSupportedEmulators()
     ]);
 
+
     const emulatorConfigs = configsResult.success ? configsResult.data : {};
     const supportedEmulators = supportedResult.success ? supportedResult.data : {};
 
@@ -597,7 +598,7 @@ async function launchRom(rom) {
     showDownloadProgressModal(rom.name);
 
     try {
-        const result = await window.electronAPI.emulator.launch(rom, null);
+        const result = await window.electronAPI.roms.launch(rom, null);
 
         // Hide progress modal and remove listener
         hideDownloadProgressModal();
@@ -963,8 +964,13 @@ async function displayPlatforms(platforms) {
         window.electronAPI.emulator.getSupportedEmulators()
     ]);
 
+
+
+
     const emulatorConfigs = configsResult.success ? configsResult.data : {};
     const supportedEmulators = supportedResult.success ? supportedResult.data : {};
+
+
 
     // Get base URL from API
     const baseUrl = await window.electronAPI.config.getBaseUrl();
@@ -1311,15 +1317,24 @@ async function loadEmulatorsConfig() {
         window.electronAPI.emulator.getSupportedEmulators()
     ]);
 
+
+
     if (configsResult.success && supportedResult.success) {
         displayEmulatorsConfig(configsResult.data, supportedResult.data);
+    } else {
+        console.error('Failed to load emulator configs:', { configsResult, supportedResult });
     }
 }
 
 function displayEmulatorsConfig(configs, supportedEmulators) {
     const container = document.getElementById('emulators-config');
 
-    container.innerHTML = `
+    if (!container) {
+        console.error('emulators-config container not found!');
+        return;
+    }
+
+    const html = `
     <p class="info-text">Configure the path to your emulators</p>
     <div>
     <p  class="info-text">⚠️Note: We recommend using emulators that you're not using for other purposes to avoid configuration / save conflicts. </p>
@@ -1339,20 +1354,30 @@ function displayEmulatorsConfig(configs, supportedEmulators) {
     <button class="btn-primary" id="save-emulators-btn" style="margin-top: 1rem;">Save</button>
   `;
 
+    container.innerHTML = html;
+
+    // Add auto-save on input change
+    const inputs = container.querySelectorAll('input');
+    inputs.forEach(input => {
+        input.addEventListener('blur', async () => {
+            const emulatorKey = input.dataset.emulator;
+            const path = input.value.trim();
+
+            // Save even if empty (to clear the path)
+            await window.electronAPI.emulator.saveConfig(emulatorKey, path);
+            console.log(`Auto-saved ${emulatorKey}: ${path}`);
+        });
+    });
+
     document.getElementById('save-emulators-btn').addEventListener('click', async () => {
         const inputs = container.querySelectorAll('input');
 
         for (const input of inputs) {
             const emulatorKey = input.dataset.emulator;
-            const path = input.value;
+            const path = input.value.trim();
 
-            if (path) {
-                // Configure for all platforms supported by this emulator
-                const emulator = supportedEmulators[emulatorKey];
-                for (const platform of emulator.platforms) {
-                    await window.electronAPI.emulator.configure(platform, path);
-                }
-            }
+            // Save even if empty (to clear the path)
+            await window.electronAPI.emulator.saveConfig(emulatorKey, path);
         }
 
         showNotification('Configuration saved!', 'success');
@@ -1568,10 +1593,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // Always load installed ROMs when switching to this view (will use cache if available)
                 loadInstalledRoms();
             } else if (viewName === 'emulators') {
-                if (!loadedViews.emulators) {
-                    loadEmulatorsConfig();
-                    loadedViews.emulators = true;
-                }
+                loadEmulatorsConfig();
+                loadedViews.emulators = true;
             } else if (viewName === 'settings') {
                 // Ensure settings view shows the appropriate step based on connection status
                 updateSettingsViewState();

@@ -314,6 +314,10 @@ export interface Rom {
   rom_user: RomUser;
 }
 
+export interface LocalRom extends Rom {
+  localPath: string;
+}
+
 export interface RomUserSave {
   id: number;
   rom_id: number;

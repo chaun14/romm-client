@@ -53,18 +53,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     roms: {
         fetchAll: () => ipcRenderer.invoke('roms:fetch-all'),
         search: (query) => ipcRenderer.invoke('roms:search', query),
-        getByPlatform: (platform) => ipcRenderer.invoke('roms:get-by-platform', platform)
+        getByPlatform: (platform) => ipcRenderer.invoke('roms:get-by-platform', platform),
+        launch: (rom, emulatorPath) =>
+            ipcRenderer.invoke('roms:launch', { rom, emulatorPath }),
     },
 
     // Emulators
     emulator: {
-        launch: (rom, emulatorPath) =>
-            ipcRenderer.invoke('emulator:launch', { rom, emulatorPath }),
         launchWithSaveChoice: (romData, saveChoice, saveId) =>
             ipcRenderer.invoke('emulator:launch-with-save-choice', { romData, saveChoice, saveId }),
         configure: (platform, emulatorPath) =>
             ipcRenderer.invoke('emulator:configure', { platform, emulatorPath }),
         getConfigs: () => ipcRenderer.invoke('emulator:get-configs'),
+        saveConfig: (emulatorKey, path) => ipcRenderer.invoke('emulator:saveConfig', { emulatorKey, path }),
         isPlatformSupported: (platform) => ipcRenderer.invoke('emulator:is-platform-supported', platform),
         getSupportedPlatforms: () => ipcRenderer.invoke('emulator:get-supported-platforms'),
         getSupportedEmulators: () => ipcRenderer.invoke('emulator:get-supported-emulators')

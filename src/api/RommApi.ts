@@ -203,6 +203,7 @@ export class RommApi {
   }
 
   private async apiCall<T>(method: "get" | "post", endpoint: string, options: any = {}): Promise<ApiResponse<T>> {
+    console.log(`API Call: ${method.toUpperCase()} ${endpoint}`, JSON.stringify(options));
     try {
       const response = await this.client![method](endpoint, options);
       return { success: true, data: response.data };
@@ -243,6 +244,26 @@ export class RommApi {
     return this.apiCall("get", "/api/roms", { params });
   }
 
+  async fetchAllRoms(options: RomOptions = {}): Promise<ApiResponse<Rom[]>> {
+    const allRoms: Rom[] = [];
+    let offset = 0;
+    const limit = options.limit || 100;
+
+    while (true) {
+      const response = await this.fetchRoms({ ...options, limit, offset });
+      if (!response.success) break;
+
+      if (!response.data) break;
+
+      allRoms.push(...response.data.items.filter((rom) => rom.missing_from_fs == false));
+      if (response.data.items.length < limit) break;
+
+      offset += limit;
+    }
+
+    return { success: true, data: allRoms };
+  }
+
   async searchRoms(query: string, options: RomOptions = {}): Promise<ApiResponse<RomsResponse>> {
     return this.fetchRoms({ search: query, ...options });
   }
@@ -261,6 +282,8 @@ export class RommApi {
   async downloadRom(romId: number, fileName?: string, onProgress?: (progress: DownloadProgress) => void): Promise<ApiResponse<Buffer>> {
     try {
       const endpoint = fileName ? `/api/roms/${romId}/content/${encodeURIComponent(fileName)}` : `/api/roms/${romId}/content`;
+
+      console.log(`Downloading ROM: ${romId}, File: ${fileName}, url: ${endpoint}`);
 
       const response = await this.client!.get(endpoint, {
         responseType: "arraybuffer",

@@ -10,6 +10,7 @@ export interface AppSettings {
   csrfToken?: string | null;
   username?: string | null;
   password?: string | null;
+  emulators?: Array<{ name: string; path: string }>;
 }
 
 /**
@@ -79,6 +80,11 @@ export class AppSettingsManager {
       if (this.settings.username && this.settings.password) {
         configToSave.username = this.settings.username;
         configToSave.password = this.settings.password;
+      }
+
+      // Save emulators configuration if it exists
+      if (this.settings.emulators && this.settings.emulators.length > 0) {
+        configToSave.emulators = this.settings.emulators;
       }
 
       await fs.writeFile(this.configPath, JSON.stringify(configToSave, null, 2));

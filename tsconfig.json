@@ -28,7 +28,10 @@
   },
   "include": [
     "src/**/*",
-    "src/renderer/**/*"
+    "src/renderer/**/*",
+    "old/main.js",
+    "old/emulator-manager.js",
+    "old/save-manager.js"
   ],
   "exclude": [
     "node_modules",
