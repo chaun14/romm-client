@@ -4,6 +4,8 @@ let currentPlatforms = [];
 let selectedRom = null;
 let currentUser = null;
 let currentPlatformId = null;
+let remoteRoms = [];
+let localRoms = [];
 
 // Cache status for ROMs
 let romCacheStatus = new Map();
@@ -270,6 +272,8 @@ async function searchRoms() {
 
     displayRoms(filteredRoms);
 }
+
+
 
 async function displayRoms(roms) {
     const grid = document.getElementById('roms-grid');
@@ -594,53 +598,50 @@ async function launchRom(rom) {
         updateDownloadProgress(progress);
     });
 
+    // Setup download complete listener
+    window.electronAPI.onDownloadComplete((data) => {
+        // Hide progress modal and remove listeners
+        hideDownloadProgressModal();
+        window.electronAPI.removeDownloadProgressListener();
+        window.electronAPI.removeDownloadCompleteListener();
+
+        // ROM has been downloaded and cached, update cache status immediately
+        romCacheStatus.set(rom.id, true);
+
+        // Reset installed ROMs data so the "Installed" view gets updated
+        allInstalledRoms = [];
+        installedPlatforms = [];
+
+        showNotification(`ROM downloaded: ${rom.name}`, 'success');
+        document.getElementById('rom-modal').classList.remove('show');
+
+        // Refresh ROM list to update cache status
+        scheduleRomListRefresh();
+
+        isDownloading = false;
+    });
+
     // Show progress modal
     showDownloadProgressModal(rom.name);
 
     try {
+        // Start the launch process (returns immediately)
         const result = await window.electronAPI.roms.launch(rom, null);
 
-        // Hide progress modal and remove listener
-        hideDownloadProgressModal();
-        window.electronAPI.removeDownloadProgressListener();
-
-        if (result.success) {
-            // ROM has been downloaded and cached, update cache status immediately
-            romCacheStatus.set(rom.id, true);
-
-            // Invalidate installed ROMs cache so the "Installed" view gets updated
-            cachedInstalledRoms = null;
-            cachedInstalledPlatforms = null;
-            allInstalledRoms = [];
-            installedPlatforms = [];
-
-            // Check if we need to show save choice modal
-            if (result.needsSaveChoice) {
-                showSaveChoiceModal(result.saveComparison, result.romData);
-            } else {
-                // ROM was launched automatically (no save choice needed)
-                showNotification(`ROM launched: ${rom.name}`, 'success');
-                document.getElementById('rom-modal').classList.remove('show');
-
-                // ROM has been downloaded and cached, update cache status immediately
-                romCacheStatus.set(rom.id, true);
-
-                // Invalidate installed ROMs cache so the "Installed" view gets updated
-                cachedInstalledRoms = null;
-                cachedInstalledPlatforms = null;
-                allInstalledRoms = [];
-                installedPlatforms = [];
-
-                // Refresh ROM list to update cache status (keep as backup)
-                scheduleRomListRefresh();
-            }
-        } else {
+        if (!result.success) {
+            // Hide modal and show error if launch failed to start
+            hideDownloadProgressModal();
+            window.electronAPI.removeDownloadProgressListener();
+            window.electronAPI.removeDownloadCompleteListener();
             showNotification(`Error: ${result.error}`, 'error');
+            isDownloading = false;
         }
     } catch (error) {
-        console.error(`[Launch Error] Failed to launch ROM ${rom.name}:`, error);
+        console.error(`[Launch Error] Failed to start ROM launch ${rom.name}:`, error);
+        hideDownloadProgressModal();
+        window.electronAPI.removeDownloadProgressListener();
+        window.electronAPI.removeDownloadCompleteListener();
         showNotification(`Error: ${error.message}`, 'error');
-    } finally {
         isDownloading = false;
     }
 }
@@ -689,8 +690,13 @@ function updateDownloadProgress(progress) {
         // Download progress (existing logic)
         modalTitle.textContent = 'Downloading ROM';
         progressBar.style.width = `${progress.percent}%`;
-        progressPercent.textContent = `${progress.percent}%`;
-        progressSize.textContent = `${progress.downloaded} MB / ${progress.total} MB`;
+        if (progress.message === 'ROM already available') {
+            progressPercent.textContent = progress.message;
+            progressSize.textContent = '';
+        } else {
+            progressPercent.textContent = `${progress.percent}%`;
+            progressSize.textContent = `${progress.downloaded} MB / ${progress.total} MB`;
+        }
     }
 }
 
@@ -781,9 +787,7 @@ async function selectSaveAndLaunch(saveChoice, romData, saveId = null) {
         // ROM has been downloaded and cached, update cache status immediately
         romCacheStatus.set(romData.rom.id, true);
 
-        // Invalidate installed ROMs cache so the "Installed" view gets updated
-        cachedInstalledRoms = null;
-        cachedInstalledPlatforms = null;
+        // Reset installed ROMs data so the "Installed" view gets updated
         allInstalledRoms = [];
         installedPlatforms = [];
 
@@ -796,39 +800,20 @@ async function selectSaveAndLaunch(saveChoice, romData, saveId = null) {
 
 // Platforms
 document.getElementById('refresh-platforms-btn').addEventListener('click', () => {
-    invalidateCache();
     loadPlatforms();
 });
-
-// Global variables for caching data
-let cachedPlatforms = null;
-let cachedStats = null;
-let cachedInstalledRoms = null;
-let cachedInstalledPlatforms = null;
-let lastCacheTime = 0;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
 
 // Global variables for installed ROMs filtering
 let allInstalledRoms = [];
 let installedPlatforms = [];
 
-// Cache management functions
-function isCacheValid() {
-    return Date.now() - lastCacheTime < CACHE_DURATION;
-}
-
-function invalidateCache() {
-    cachedPlatforms = null;
-    cachedStats = null;
-    cachedInstalledRoms = null;
-    cachedInstalledPlatforms = null;
-    lastCacheTime = 0;
-    allInstalledRoms = [];
-    installedPlatforms = [];
-
-    // Reset loaded views to force reload
-    loadedViews.platforms = false;
-    loadedViews.installed = false;
+async function checkRomCacheStatus(rom) {
+    if (!allInstalledRoms.filter(r => r.id === rom.id).length > 0) {
+        console.log(`[ROM MANAGER] ROM is not installed: ${rom.name} (ID: ${rom.id})`);
+        return false;
+    }
+    console.log(`[ROM MANAGER] ROM is installed: ${rom.name} (ID: ${rom.id})`);
+    return true;
 }
 
 async function preloadData() {
@@ -848,10 +833,24 @@ async function preloadData() {
         // Load stats
         await loadStatsBar();
 
+        // Load all remote ROMs
+        const remoteRomsResult = await window.electronAPI.roms.fetchAll();
+        if (remoteRomsResult) {
+            remoteRoms = remoteRomsResult;
+            console.log(`Loaded ${remoteRoms.length} remote ROMs`);
+        }
+
+        // Load all local ROMs
+        const localRomsResult = await window.electronAPI.roms.fetchLocal();
+        if (localRomsResult) {
+            localRoms = localRomsResult;
+            console.log(`Loaded ${localRoms.length} local ROMs`);
+        }
+
         // Load platforms
         const platformsResult = await window.electronAPI.platforms.fetchAll();
         if (platformsResult.success) {
-            cachedPlatforms = platformsResult.data;
+            currentPlatforms = platformsResult.data;
             loadedViews.platforms = true; // Mark platforms as loaded
         }
 
@@ -859,7 +858,6 @@ async function preloadData() {
         await preloadInstalledRomsData();
         loadedViews.installed = true; // Mark installed ROMs as loaded
 
-        lastCacheTime = Date.now();
         console.log('Data preloaded successfully');
         return true;
 
@@ -871,50 +869,34 @@ async function preloadData() {
 
 async function preloadInstalledRomsData() {
     try {
-        if (!cachedPlatforms) return;
+        if (!currentPlatforms || !localRoms) return;
 
-        const platforms = cachedPlatforms;
-        const platformMap = {};
-        platforms.forEach(platform => {
-            platformMap[platform.id] = platform;
+        // Filter ROMs that are cached/installed (localRoms contains the installed ones)
+        const installedRoms = localRoms.map(localRom => {
+            // Find the corresponding remote ROM info
+            const remoteRom = remoteRoms.find(r => r.id === localRom.id);
+            if (remoteRom) {
+                return {
+                    ...remoteRom,
+                    localPath: localRom.localPath,
+                    // Add platform info
+                    platform_name: remoteRom.platform_name || 'Unknown',
+                    platform_slug: remoteRom.platform_slug,
+                    platform_id: remoteRom.platform_id
+                };
+            }
+            return localRom; // fallback
         });
 
-        // Get all ROMs from all platforms
-        const allRoms = [];
-        for (const platform of platforms) {
-            if (platform.rom_count > 0) {
-                const romsResult = await window.electronAPI.roms.getByPlatform(platform.id);
-                if (romsResult.success && romsResult.data.items) {
-                    // Add platform info to each ROM
-                    const romsWithPlatform = romsResult.data.items.map(rom => ({
-                        ...rom,
-                        platform_name: platform.display_name || platform.name,
-                        platform_slug: platform.slug || platform.name.toLowerCase().replace(/\s+/g, '-'),
-                        platform_id: platform.id
-                    }));
-                    allRoms.push(...romsWithPlatform);
-                }
-            }
-        }
-
-        // Filter ROMs that are cached/installed
-        const installedRoms = [];
-        for (const rom of allRoms) {
-            const isCached = await checkRomCacheStatus(rom);
-            if (isCached) {
-                installedRoms.push(rom);
-            }
-        }
+        console.log('Installed ROMs:', installedRoms);
 
         // Get unique platforms that have installed ROMs
         const installedPlatformIds = [...new Set(installedRoms.map(rom => rom.platform_id))];
-        const platformsWithInstalledRoms = platforms.filter(platform => installedPlatformIds.includes(platform.id));
+        const platformsWithInstalledRoms = currentPlatforms.filter(platform => installedPlatformIds.includes(platform.id));
 
-        // Cache the data
-        cachedInstalledRoms = installedRoms;
-        cachedInstalledPlatforms = platformsWithInstalledRoms;
+        // Store the data (no more caching, just direct assignment)
         allInstalledRoms = installedRoms;
-        installedPlatforms = [];
+        installedPlatforms = platformsWithInstalledRoms;
 
     } catch (error) {
         console.error('Error preloading installed ROMs data:', error);
@@ -922,10 +904,9 @@ async function preloadInstalledRomsData() {
 }
 
 async function loadPlatforms() {
-    // Use cached data if available and valid
-    if (cachedPlatforms && isCacheValid()) {
-        console.log('Using cached platforms data');
-        currentPlatforms = cachedPlatforms;
+    // Use preloaded data if available
+    if (currentPlatforms && currentPlatforms.length > 0) {
+        console.log('Using preloaded platforms data');
         displayPlatforms(currentPlatforms);
         return;
     }
@@ -934,8 +915,6 @@ async function loadPlatforms() {
 
     if (result.success) {
         currentPlatforms = result.data;
-        // Cache the data
-        cachedPlatforms = result.data;
         displayPlatforms(currentPlatforms);
     } else {
         showNotification(`Error: ${result.error}`, 'error');
@@ -1029,16 +1008,14 @@ async function displayPlatforms(platforms) {
 
 // Installed ROMs
 async function loadInstalledRoms() {
-    // Use cached data if available and valid
-    if (cachedInstalledRoms && cachedInstalledPlatforms && isCacheValid()) {
-        console.log('Using cached installed ROMs data');
-        allInstalledRoms = cachedInstalledRoms;
-        installedPlatforms = cachedInstalledPlatforms;
+    // Use preloaded data
+    if (allInstalledRoms && installedPlatforms) {
+        console.log('Using preloaded installed ROMs data');
 
         // Populate platform filter dropdown
         const platformFilter = document.getElementById('installed-platform-filter');
         platformFilter.innerHTML = '<option value="">All Platforms</option>';
-        cachedInstalledPlatforms.forEach(platform => {
+        installedPlatforms.forEach(platform => {
             const option = document.createElement('option');
             option.value = platform.id;
             option.textContent = platform.display_name || platform.name;
@@ -1050,84 +1027,11 @@ async function loadInstalledRoms() {
         return;
     }
 
-    const container = document.getElementById('installed-roms-list');
-    container.innerHTML = '<p class="empty-state">Loading installed ROMs...</p>';
-
-    try {
-        // Get all platforms first to map platform names
-        const platformsResult = await window.electronAPI.platforms.fetchAll();
-        if (!platformsResult.success) {
-            container.innerHTML = '<p class="empty-state error">Failed to load platforms</p>';
-            return;
-        }
-
-        const platforms = platformsResult.data;
-        const platformMap = {};
-        platforms.forEach(platform => {
-            platformMap[platform.id] = platform;
-        });
-
-        // Get all ROMs from all platforms
-        const allRoms = [];
-        for (const platform of platforms) {
-            if (platform.rom_count > 0) {
-                const romsResult = await window.electronAPI.roms.getByPlatform(platform.id);
-                if (romsResult.success && romsResult.data.items) {
-                    // Add platform info to each ROM
-                    const romsWithPlatform = romsResult.data.items.map(rom => ({
-                        ...rom,
-                        platform_name: platform.display_name || platform.name,
-                        platform_slug: platform.slug || platform.name.toLowerCase().replace(/\s+/g, '-'),
-                        platform_id: platform.id
-                    }));
-                    allRoms.push(...romsWithPlatform);
-                }
-            }
-        }
-
-        // Filter ROMs that are cached/installed
-        const installedRoms = [];
-        for (const rom of allRoms) {
-            const isCached = await checkRomCacheStatus(rom);
-            if (isCached) {
-                installedRoms.push(rom);
-            }
-        }
-
-        // Get unique platforms that have installed ROMs
-        const installedPlatformIds = [...new Set(installedRoms.map(rom => rom.platform_id))];
-        const platformsWithInstalledRoms = platforms.filter(platform => installedPlatformIds.includes(platform.id));
-
-        // Populate platform filter dropdown with only platforms that have installed ROMs
-        const platformFilter = document.getElementById('installed-platform-filter');
-        platformFilter.innerHTML = '<option value="">All Platforms</option>';
-        platformsWithInstalledRoms.forEach(platform => {
-            const option = document.createElement('option');
-            option.value = platform.id;
-            option.textContent = platform.display_name || platform.name;
-            platformFilter.appendChild(option);
-        });
-
-        // Store globally for filtering
-        allInstalledRoms = installedRoms;
-        installedPlatforms = platforms;
-
-        // Cache the data
-        cachedInstalledRoms = installedRoms;
-        cachedInstalledPlatforms = platformsWithInstalledRoms;
-
-        // Apply current filters
-        applyFilters();
-
-    } catch (error) {
-        console.error('Error loading installed ROMs:', error);
-        container.innerHTML = '<p class="empty-state error">Error loading installed ROMs</p>';
-    }
+    console.log('No preloaded installed ROMs data available');
 }
 
 // Installed ROMs event listeners
 document.getElementById('refresh-installed-btn').addEventListener('click', () => {
-    invalidateCache();
     loadInstalledRoms();
 });
 document.getElementById('installed-platform-filter').addEventListener('change', applyFilters);
@@ -1173,7 +1077,7 @@ async function displayInstalledRoms(roms) {
             const sizeResult = await window.electronAPI.getRomCacheSize(rom);
             return {
                 ...rom,
-                cacheSize: sizeResult.success ? sizeResult.size : 0
+                cacheSize: sizeResult.success ? sizeResult.data : 0
             };
         } catch (error) {
             console.warn(`Failed to get cache size for ROM ${rom.id}:`, error);
@@ -1254,10 +1158,11 @@ async function deleteCachedRom(rom) {
         const result = await window.electronAPI.deleteCachedRom(rom);
         if (result.success) {
             showNotification(`ROM "${rom.name}" deleted successfully`, 'success');
-            // Clear ROM cache status and invalidate main cache
+            // Clear ROM cache status and reset installed ROMs data
             romCacheStatus.delete(rom.id);
             romSaveStatus.delete(rom.id);
-            invalidateCache();
+            allInstalledRoms = [];
+            installedPlatforms = [];
             loadInstalledRoms();
         } else {
             showNotification(`Error deleting ROM: ${result.error}`, 'error');
@@ -1293,15 +1198,11 @@ async function loadRomsForPlatform(platformId, platform) {
     // Clear cache status when loading new platform
     clearCacheStatus();
 
-    // Fetch ROMs
-    const result = await window.electronAPI.roms.getByPlatform(platformId);
+    // Filter ROMs from preloaded remote ROMs
+    const platformRoms = remoteRoms.filter(rom => rom.platform_id === platformId || rom.platform_slug === platformId);
+    currentRoms = platformRoms;
 
-    if (result.success) {
-        currentRoms = result.data.items || result.data;
-        displayRoms(currentRoms);
-    } else {
-        showNotification(`Error: ${result.error}`, 'error');
-    }
+    displayRoms(currentRoms);
 }
 
 // Back to platforms button
@@ -1400,37 +1301,7 @@ function formatFileSize(bytes) {
     return `${size.toFixed(2)} ${units[unitIndex]}`;
 }
 
-// Check if ROM is cached
-async function checkRomCacheStatus(rom) {
-    if (romCacheStatus.has(rom.id)) {
-        return romCacheStatus.get(rom.id);
-    }
 
-    try {
-        const result = await window.electronAPI.checkRomCacheIntegrity(rom);
-        if (result.success) {
-            // Store the cache status
-            romCacheStatus.set(rom.id, result.cached);
-
-            // Log integrity verification results if available
-            if (result.integrity) {
-                if (result.integrity.verified) {
-                    console.log(`[CACHE] ROM ${rom.id} integrity verified ✅`);
-                } else {
-                    console.warn(`[CACHE] ROM ${rom.id} integrity check failed ⚠️`, result.integrity);
-                }
-            }
-
-            return result.cached;
-        } else {
-            console.error(`Error checking cache integrity for ROM ${rom.id}:`, result.error);
-            return false;
-        }
-    } catch (error) {
-        console.error(`Error checking cache for ROM ${rom.id}:`, error);
-        return false;
-    }
-}
 
 // Check if ROM has saves (cloud or local)
 async function checkRomSaveStatus(rom) {
@@ -1503,35 +1374,10 @@ function showNotification(message, type) {
 
 // Load and update stats bar
 async function loadStatsBar() {
-    // Use cached data if available and valid
-    if (cachedStats && isCacheValid()) {
-        console.log('Using cached stats data');
-        const stats = cachedStats;
-
-        // Update stats bar values
-        document.getElementById('stat-platforms').textContent = stats.PLATFORMS || 0;
-        document.getElementById('stat-roms').textContent = stats.ROMS || 0;
-        document.getElementById('stat-saves').textContent = stats.SAVES || 0;
-        document.getElementById('stat-states').textContent = stats.STATES || 0;
-        document.getElementById('stat-screenshots').textContent = stats.SCREENSHOTS || 0;
-
-        // Format storage
-        const totalSizeGB = (stats.TOTAL_FILESIZE_BYTES / (1024 * 1024 * 1024)).toFixed(1);
-        const totalSizeTB = (stats.TOTAL_FILESIZE_BYTES / (1024 * 1024 * 1024 * 1024)).toFixed(2);
-        const displaySize = totalSizeTB >= 1 ? `${totalSizeTB} TB` : `${totalSizeGB} GB`;
-        document.getElementById('stat-storage').textContent = displaySize;
-
-        // Show stats bar
-        document.getElementById('stats-bar').style.display = 'flex';
-        return;
-    }
-
     const result = await window.electronAPI.stats.fetch();
 
     if (result.success) {
         const stats = result.data;
-        // Cache the stats
-        cachedStats = stats;
 
         // Update stats bar values
         document.getElementById('stat-platforms').textContent = stats.PLATFORMS || 0;

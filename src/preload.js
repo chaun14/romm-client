@@ -52,6 +52,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // ROMs
     roms: {
         fetchAll: () => ipcRenderer.invoke('roms:fetch-all'),
+        fetchLocal: () => ipcRenderer.invoke('roms:fetch-local'),
         search: (query) => ipcRenderer.invoke('roms:search', query),
         getByPlatform: (platform) => ipcRenderer.invoke('roms:get-by-platform', platform),
         launch: (rom, emulatorPath) =>
@@ -95,6 +96,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     removeDownloadProgressListener: () => {
         ipcRenderer.removeAllListeners('download:progress');
+    },
+
+    // Download complete listener
+    onDownloadComplete: (callback) => {
+        ipcRenderer.on('rom:download-complete', (event, data) => callback(data));
+    },
+    removeDownloadCompleteListener: () => {
+        ipcRenderer.removeAllListeners('rom:download-complete');
     },
 
     // Cache and save status

@@ -19,6 +19,8 @@ export interface DownloadProgress {
   total: string;
   loaded: number;
   totalBytes: number;
+  totalFilesNumber: number;
+  currentFileNumber: number;
 }
 
 export interface RomOptions {
@@ -316,6 +318,7 @@ export interface Rom {
 
 export interface LocalRom extends Rom {
   localPath: string;
+  localFiles?: string[];
 }
 
 export interface RomUserSave {

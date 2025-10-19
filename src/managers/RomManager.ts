@@ -19,14 +19,12 @@ export class RomManager {
     return this.roms;
   }
 
-  public addRom(rom: Rom): void {
-    this.roms.push(rom);
-    this.saveRoms();
+  public getLocalRoms(): LocalRom[] {
+    return this.localRoms;
   }
 
-  public removeRom(rom: Rom): void {
-    this.roms = this.roms.filter((r) => r.id !== rom.id);
-    this.saveRoms();
+  public getLocalRomById(id: number): LocalRom | undefined {
+    return this.localRoms.find((rom) => rom.id === id);
   }
 
   async loadRemoteRoms(): Promise<number> {
@@ -47,20 +45,47 @@ export class RomManager {
     return this.roms.length;
   }
 
+  async deleteLocalRom(id: number): Promise<{ success: boolean }> {
+    const localRom = this.getLocalRomById(id);
+    if (localRom) {
+      try {
+        await fs.promises.unlink(localRom.localPath);
+        console.log(`[ROM MANAGER] Deleted local ROM file: ${localRom.localPath}`);
+      } catch (error) {
+        console.error(`[ROM MANAGER] Failed to delete local ROM file: ${localRom.localPath}`, error);
+      }
+      this.localRoms = this.localRoms.filter((rom) => rom.id !== id);
+      return { success: true };
+    }
+    return { success: false };
+  }
+
   async loadLocalRoms(): Promise<number> {
-    // the roms are stored in a folder with rom_idoftherom
-    // so we just need to match this.roms with what we found
+    // ROMs are stored in folders named rom_<id> inside each platform subfolder
     const romFolder = this.rommClient.getRomFolder();
-
     if (!romFolder) throw new Error("ROM folder not set");
-
-    // scan local folder
-    const localRoms = await fs.promises.readdir(romFolder);
-    for (const folderName of localRoms) {
-      const rom = this.roms.find((r) => "rom_" + r.id.toString() === folderName);
-      if (rom) {
-        let localRom = rom as LocalRom;
-        localRom.localPath = path.join(romFolder, folderName);
+    this.localRoms = [];
+    const platformFolders = await fs.promises.readdir(romFolder, { withFileTypes: true });
+    for (const dirent of platformFolders) {
+      if (dirent.isDirectory()) {
+        const platformPath = path.join(romFolder, dirent.name);
+        const romDirs = await fs.promises.readdir(platformPath, { withFileTypes: true });
+        for (const romDirent of romDirs) {
+          if (romDirent.isDirectory() && romDirent.name.startsWith("rom_")) {
+            const romId = romDirent.name.replace("rom_", "");
+            const rom = this.roms.find((r) => r.id.toString() === romId);
+            if (rom) {
+              const romPath = path.join(platformPath, romDirent.name);
+              const files = await fs.promises.readdir(romPath);
+              const localRom: LocalRom = {
+                ...rom,
+                localPath: romPath,
+                localFiles: files.map((f) => path.join(romPath, f)),
+              };
+              this.localRoms.push(localRom);
+            }
+          }
+        }
       }
     }
     return this.localRoms.length;
@@ -71,19 +96,43 @@ export class RomManager {
   }
 
   private async checkRomIntegrity(rom: LocalRom): Promise<boolean> {
-    // for the moment we ignore zip files
-    let ignoredExtensions = [".zip", ".7z", ".rar", ".tar", ".gz", ".bz2"];
-
-    if (ignoredExtensions.some((ext) => rom.localPath.endsWith(ext))) {
-      return Promise.resolve(true);
+    // Check integrity for all files in the localPath folder
+    let ignoredExtensions = [".jpg"];
+    if (!rom.localFiles || rom.localFiles.length === 0) return false;
+    let allValid = true;
+    for (const filePath of rom.localFiles) {
+      if (ignoredExtensions.some((ext) => filePath.endsWith(ext))) {
+        console.log(`[ROM INTEGRITY] Ignoring integrity check for file: ${filePath}`);
+        continue;
+      }
+      // Find the file object in rom.files that matches this filePath
+      const fileName = path.basename(filePath);
+      const fileObj = Array.isArray(rom.files) ? rom.files.find(f => f.file_name === fileName) : undefined;
+      let hashParams;
+      if (fileObj) {
+        hashParams = {
+          crc_hash: fileObj.crc_hash,
+          md5_hash: fileObj.md5_hash,
+          sha1_hash: fileObj.sha1_hash
+        };
+      } else {
+        // fallback to ROM-level hash if not found
+        hashParams = {
+          crc_hash: rom.crc_hash,
+          md5_hash: rom.md5_hash,
+          sha1_hash: rom.sha1_hash
+        };
+      }
+      let result = await HashCalculator.verifyFileIntegrity(filePath, hashParams);
+      if (!result.isValid) {
+        allValid = false;
+        console.log(`[ROM INTEGRITY] Invalid file: ${filePath}`);
+      }
     }
-
-    let result = await HashCalculator.verifyFileIntegrity(rom.localPath, { crc_hash: rom.crc_hash, md5_hash: rom.md5_hash, sha1_hash: rom.sha1_hash });
-
-    return Promise.resolve(result.isValid);
+    return allValid;
   }
 
-  async launchRom(rom: Rom, onProgress: (progress: any) => void, onSaveUploadSuccess: (rom: any) => void): Promise<any> {
+  async launchRom(rom: Rom, onProgress: (progress: any) => void, onSaveUploadSuccess: (rom: any) => void, onDownloadComplete?: (rom: any) => void): Promise<any> {
     // first we need to check if we already have the file downloaded
     console.log("[LAUNCH]" + `Launching ROM: ${rom.name} (ID: ${rom.id})`);
 
@@ -94,14 +143,18 @@ export class RomManager {
     }
     if (localRom && localRom.localPath) {
       console.log("[LAUNCH]" + `Found local ROM: ${localRom.name} (ID: ${localRom.id})`);
-      // If we have the local ROM, we need to check its integrity
+      // Check integrity for all files in the folder
       const isValid = await this.checkRomIntegrity(localRom);
       if (!isValid) {
         console.log("[LAUNCH]" + `Local ROM is invalid: ${localRom.name} (ID: ${localRom.id})`);
-        // If the integrity check fails, we need to redownload the ROM
+        // If integrity fails, redownload
       } else {
         console.log("[LAUNCH]" + `Local ROM is valid: ${localRom.name} (ID: ${localRom.id})`);
         isRomOkay = true;
+        onProgress({ step: "download", percent: 100, downloaded: "0.00", total: "0.00", message: "ROM already available" });
+        if (onDownloadComplete) {
+          onDownloadComplete(rom);
+        }
       }
     }
 
@@ -109,47 +162,42 @@ export class RomManager {
     if (!isRomOkay) {
       console.log("[LAUNCH]" + `Local ROM is missing or invalid: ${rom.name} (ID: ${rom.id})`);
 
-      let fileName = "rom_" + rom.id + "." + rom.fs_extension;
       let romFolder = this.rommClient.getRomFolder();
       if (!romFolder) throw new Error("ROM folder not set");
-
       let romEmulatorSlug = rom.platform_slug || "unknown";
-
-      let fullRomPath = path.join(romFolder, romEmulatorSlug, fileName);
-
+      let romEmulatorPath = path.join(romFolder, romEmulatorSlug, "rom_" + rom.id);
+      if (!fs.existsSync(romEmulatorPath)) {
+        fs.mkdirSync(romEmulatorPath, { recursive: true });
+      }
       if (!fs.existsSync(path.join(romFolder, romEmulatorSlug))) {
         fs.mkdirSync(path.join(romFolder, romEmulatorSlug), { recursive: true });
       }
-
       if (!this.rommClient.rommApi) throw new Error("RomM API is not initialized");
-      let dlres = await this.rommClient.rommApi.downloadRom(rom.id, rom.fs_name, onProgress);
-
+      onProgress({ step: "download", percent: 0, downloaded: "0.00", total: "0.00", message: "Starting download..." });
+      let dlres = await this.rommClient.rommApi.downloadRom(rom, romEmulatorPath, onProgress);
       if (!dlres || !dlres.success || dlres.error) throw new Error("Failed to download ROM: " + (dlres?.error || "Unknown error"));
-
-      // Save the file to cache with correct extension
-      if (!dlres.data) {
-        throw new Error("Downloaded ROM data is undefined");
-      }
-      fs.writeFileSync(fullRomPath, Buffer.from(dlres.data));
-      console.log(`[CACHE] File saved to cache: ${fullRomPath}`);
-
-      // if the dl is okay, we can add our rom to our localroms, but first we need to check if it has been already added
+      onProgress({ step: "download", percent: 100, downloaded: "100.00", total: "100.00", message: "Download complete" });
+      // Add the folder and files to localRoms
+      const files = await fs.promises.readdir(romEmulatorPath);
       localRom = this.localRoms.find((r) => r.id === rom.id);
       if (!localRom) {
-        (rom as LocalRom).localPath = path.join(romFolder, fileName);
+        (rom as LocalRom).localPath = romEmulatorPath;
+        (rom as LocalRom).localFiles = files.map((f) => path.join(romEmulatorPath, f));
         this.localRoms.push(rom as LocalRom);
         localRom = rom as LocalRom;
       } else {
-        // local rom found, update its path
-        localRom.localPath = path.join(romFolder, fileName);
+        localRom.localPath = romEmulatorPath;
+        localRom.localFiles = files.map((f) => path.join(romEmulatorPath, f));
       }
-
       let isValid = await this.checkRomIntegrity(localRom);
       if (!isValid) {
         console.log("[LAUNCH]" + `Downloaded ROM is invalid: ${localRom.name} (ID: ${localRom.id})`);
         throw new Error("Downloaded ROM is invalid");
       } else {
         console.log("[LAUNCH]" + `Downloaded ROM is valid: ${localRom.name} (ID: ${localRom.id})`);
+        if (onDownloadComplete) {
+          onDownloadComplete(rom);
+        }
       }
     }
 

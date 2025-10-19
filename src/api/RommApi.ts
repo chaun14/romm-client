@@ -1,6 +1,6 @@
 import axios, { AxiosInstance } from "axios";
-import { readFileSync, existsSync } from "fs";
-import type { ApiResponse, DownloadProgress, RomOptions, HeartbeatResponse, User, ConfigResponse, Platform, StatsResponse, Rom, RomDetails, RomsResponse } from "../types/RommApi";
+import fs, { readFileSync, existsSync } from "fs";
+import type { ApiResponse, DownloadProgress, RomOptions, HeartbeatResponse, User, ConfigResponse, Platform, StatsResponse, Rom, RomDetails, RomsResponse, LocalRom } from "../types/RommApi";
 const FormData = require("form-data");
 
 export class RommApi {
@@ -279,31 +279,58 @@ export class RommApi {
     });
   }
 
-  async downloadRom(romId: number, fileName?: string, onProgress?: (progress: DownloadProgress) => void): Promise<ApiResponse<Buffer>> {
+  async downloadRom(rom: Rom | LocalRom, path: string, onProgress?: (progress: DownloadProgress) => void): Promise<ApiResponse<Buffer>> {
     try {
-      const endpoint = fileName ? `/api/roms/${romId}/content/${encodeURIComponent(fileName)}` : `/api/roms/${romId}/content`;
+      let totalToDownload = 0;
+      const toDownload: Map<number, { endpoint: string; dest_path: string; rom: Rom | LocalRom }> = new Map();
+      if (rom.has_simple_single_file) {
+        toDownload.set(rom.id, { endpoint: `/api/roms/${rom.id}/content/${encodeURIComponent(rom.fs_name)}`, dest_path: path + "/" + rom.fs_name, rom });
+        totalToDownload += rom.fs_size_bytes;
+      }
+      if (rom.has_multiple_files) {
+        for (let file of rom.files) {
+          toDownload.set(file.id, { endpoint: `/api/roms/${rom.id}/content/${encodeURIComponent(rom.fs_name)}?file_ids=${file.id}`, dest_path: path + "/" + file.file_name, rom });
+          totalToDownload += file.file_size_bytes;
+        }
+      }
 
-      console.log(`Downloading ROM: ${romId}, File: ${fileName}, url: ${endpoint}`);
+      console.log(
+        `Downloading ROM: ${rom.id}, File: ${rom.fs_name}, url: ${Array.from(toDownload.values())
+          .map((item) => item.endpoint)
+          .join(", ")}`
+      );
 
-      const response = await this.client!.get(endpoint, {
-        responseType: "arraybuffer",
-        onDownloadProgress: (progressEvent) => {
-          if (onProgress && progressEvent.total) {
-            const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-            const downloadedMB = (progressEvent.loaded / 1024 / 1024).toFixed(2);
-            const totalMB = (progressEvent.total / 1024 / 1024).toFixed(2);
-            onProgress({
-              percent,
-              downloaded: downloadedMB,
-              total: totalMB,
-              loaded: progressEvent.loaded,
-              totalBytes: progressEvent.total,
-            });
-          }
-        },
-      });
+      let fileCount = 0;
+      let totalFiles = toDownload.size;
+      for (let [id, { endpoint, dest_path, rom }] of toDownload) {
+        fileCount++;
+        const response = await this.client!.get(endpoint, {
+          responseType: "arraybuffer",
+          onDownloadProgress: (progressEvent) => {
+            if (onProgress && progressEvent.total) {
+              const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+              const downloadedMB = (progressEvent.loaded / 1024 / 1024).toFixed(2);
+              const totalMB = (progressEvent.total / 1024 / 1024).toFixed(2);
+              onProgress({
+                percent,
+                downloaded: downloadedMB,
+                total: totalMB,
+                loaded: progressEvent.loaded,
+                totalBytes: progressEvent.total,
+                totalFilesNumber: totalFiles,
+                currentFileNumber: fileCount,
+              });
+            }
+          },
+        });
 
-      return { success: true, data: response.data, fileName };
+        if (response.status == 200) {
+          await fs.promises.writeFile(dest_path, Buffer.from(response.data));
+          console.log(`Downloaded ROM file ID: ${id} to ${dest_path}`);
+        }
+      }
+
+      return { success: true };
     } catch (error: any) {
       return this.handleApiError(error);
     }

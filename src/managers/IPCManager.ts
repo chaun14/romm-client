@@ -169,26 +169,40 @@ export class IPCManager {
 
     // ROM Management
     ipcMain.handle("roms:fetch-all", async () => {
-      if (this.rommClient.rommApi) return this.rommClient.rommApi.fetchRoms();
+      console.log("[IPC]" + `Fetching all ROMs`);
+      if (this.rommClient.rommApi) return this.rommClient.romManager?.getRoms();
+      else throw new Error("RomM API is not initialized");
+    });
+
+    ipcMain.handle("roms:fetch-local", async () => {
+      console.log("[IPC]" + `Fetching local ROMs`);
+      if (this.rommClient.rommApi) return this.rommClient.romManager?.getLocalRoms();
       else throw new Error("RomM API is not initialized");
     });
 
     ipcMain.handle("roms:search", async (event, query) => {
+      console.log("[IPC]" + `Searching ROMs with query: ${query}`);
       if (this.rommClient.rommApi) return this.rommClient.rommApi.searchRoms(query);
       else throw new Error("RomM API is not initialized");
     });
 
     ipcMain.handle("roms:get-by-platform", async (event, platform) => {
-      if (this.rommClient.rommApi) return this.rommClient.rommApi.getRomsByPlatform(platform);
+      console.log("[IPC]" + `Fetching ROMs for platform: ${platform}`);
+      let platformRoms;
+      if (this.rommClient.romManager) platformRoms = this.rommClient.romManager.getRoms().filter((rom) => rom.platform_id === platform || rom.platform_slug === platform);
       else throw new Error("RomM API is not initialized");
+
+      return { success: true, data: platformRoms };
     });
 
     // Emulator Configuration
     ipcMain.handle("emulator:getConfigs", async () => {
+      console.log("[IPC]" + `Fetching emulator configs`);
       return { success: true, data: this.emulatorManager.getConfigurations() };
     });
 
     ipcMain.handle("emulator:getSupportedEmulators", async () => {
+      console.log("[IPC]" + `Fetching supported emulators`);
       return { success: true, data: this.emulatorManager.getSupportedEmulators() };
     });
 
@@ -232,19 +246,23 @@ export class IPCManager {
     });*/
 
     ipcMain.handle("emulator:get-configs", async () => {
+      console.log("[IPC]" + `Fetching emulator configs`);
       return { success: true, data: this.emulatorManager.getConfigurations() };
     });
 
     ipcMain.handle("emulator:get-supported-emulators", async () => {
+      console.log("[IPC]" + `Fetching supported emulators`);
       return { success: true, data: this.emulatorManager.getSupportedEmulators() };
     });
 
     ipcMain.handle("emulator:saveConfig", async (event, { emulatorKey, path }) => {
+      console.log("[IPC]" + `Saving config for emulator: ${emulatorKey}`);
       this.emulatorManager.saveConfiguration(emulatorKey, path);
       return { success: true };
     });
 
     ipcMain.handle("rom:check-cache-integrity", async (event, rom) => {
+      console.log("[IPC]" + `Checking cache integrity for ROM: ${rom.name} (ID: ${rom.id})`);
       // Temporary handler - cache functionality not implemented yet
       return { success: true, cached: false };
     });
@@ -265,12 +283,14 @@ export class IPCManager {
 
     // Platform Management
     ipcMain.handle("platforms:fetch-all", async () => {
+      console.log("[IPC]" + `Fetching all platforms`);
       if (this.rommClient.rommApi) return this.rommClient.rommApi.fetchPlatforms();
       else throw new Error("RomM API is not initialized");
     });
 
     // Stats
     ipcMain.handle("stats:fetch", async () => {
+      console.log("[IPC]" + `Fetching stats`);
       if (this.rommClient.rommApi) return this.rommClient.rommApi.fetchStats();
       else throw new Error("RomM API is not initialized");
     });
@@ -386,8 +406,26 @@ export class IPCManager {
       }
     });*/
 
+    ipcMain.handle("rom:delete-cache", async (event, rom) => {
+      if (this.rommClient.romManager) {
+        const result = await this.rommClient.romManager.deleteLocalRom(rom.id);
+        return result;
+      }
+      return { success: false, error: "RomManager not initialized" };
+    });
+
+    ipcMain.handle("rom:get-cache-size", async (event, rom) => {
+      let romdata;
+      if (this.rommClient.romManager) romdata = this.rommClient.romManager.getLocalRomById(rom.id);
+
+      return {
+        success: true,
+        data: romdata?.fs_size_bytes,
+      };
+    });
     // Emulator Launch
     ipcMain.handle("roms:launch", async (event, { rom, emulatorPath }) => {
+      console.log("[IPC]" + `Launching ROM: ${rom.name} (ID: ${rom.id})`);
       // Create progress callback to send updates to renderer
       const onProgress = (progress: any) => {
         event.sender.send("download:progress", progress);
@@ -398,13 +436,22 @@ export class IPCManager {
         event.sender.send("save:upload-success", { romId: rom.id, romName: rom.name });
       };
 
+      // Create download completion callback
+      const onDownloadComplete = (rom: any) => {
+        event.sender.send("rom:download-complete", { romId: rom.id, romName: rom.name });
+      };
+
       if (this.rommClient && this.rommClient.romManager) {
-        this.rommClient.romManager.launchRom(rom, onProgress, onSaveUploadSuccess);
+        // Start the launch process asynchronously
+        this.rommClient.romManager.launchRom(rom, onProgress, onSaveUploadSuccess, onDownloadComplete);
+        // Return immediately to not block the UI
+        return { success: true };
       }
-      return { success: true };
+      return { success: false, error: "RomManager not initialized" };
     });
 
     ipcMain.handle("rom:check-saves", async (event, rom) => {
+      console.log("[IPC]" + `Checking saves for ROM: ${rom.name} (ID: ${rom.id})`);
       if (this.rommClient.saveManager) return this.rommClient.saveManager.checkSaves(rom);
       else return { success: false, error: "SaveManager not initialized" };
     });
