@@ -418,8 +418,11 @@ async function showRomDetail(rom) {
     const modal = document.getElementById('rom-modal');
     const detail = document.getElementById('rom-detail');
 
-    // Check if ROM is cached
-    const isCached = await checkRomCacheStatus(rom);
+    // Check if ROM is cached and has saves
+    const [isCached, hasSaves] = await Promise.all([
+        checkRomCacheStatus(rom),
+        checkRomSaveStatus(rom)
+    ]);
 
     // Get emulator configurations and supported emulators
     const [configsResult, supportedResult] = await Promise.all([
@@ -465,12 +468,18 @@ async function showRomDetail(rom) {
         buttonTitle = `title="${emulatorMessage}"`;
     }
 
+    // Create save status indicator
+    const saveStatusHtml = hasSaves
+        ? '<p><strong>Saves:</strong> <span class="save-indicator" title="Save data available">💾 Available</span></p>'
+        : '<p><strong>Saves:</strong> <span class="save-indicator" title="No save data found">❌ None</span></p>';
+
     detail.innerHTML = `
     <div class="rom-detail-header">
       <h2>${rom.name}</h2>
       <p><strong>Platform:</strong> ${rom.platform_name || rom.platform}</p>
       <p><strong>Region:</strong> ${rom.region || 'Unknown'}</p>
       <p><strong>Size:</strong> ${formatFileSize(rom.file_size_bytes || rom.files?.[0]?.file_size_bytes)}</p>
+      ${saveStatusHtml}
     </div>
 
     <div class="rom-detail-actions">
@@ -735,7 +744,13 @@ function showSaveChoiceModal(saveData, context) {
 
     // Add cloud saves (max 5 most recent)
     if (saveData.hasCloud && saveData.cloudSaves && saveData.cloudSaves.length > 0) {
-        const recentCloudSaves = saveData.cloudSaves.slice(0, 5);
+        // Sort cloud saves by date (most recent first) and take the first 5
+        const sortedCloudSaves = saveData.cloudSaves.sort((a, b) => {
+            const dateA = new Date(a.created_at || a.updated_at || 0);
+            const dateB = new Date(b.created_at || b.updated_at || 0);
+            return dateB.getTime() - dateA.getTime(); // Most recent first
+        });
+        const recentCloudSaves = sortedCloudSaves.slice(0, 5);
 
         recentCloudSaves.forEach((cloudSave, index) => {
             // Extract filename from download_path or use fileName
@@ -763,9 +778,12 @@ function showSaveChoiceModal(saveData, context) {
     if (saveData.hasLocal) {
         // Get the modification date of the local save directory
         let localDateDisplay = 'Unknown date';
+        let localTimestamp = Date.now() - 1000; // Default fallback
         if (saveData.localSaveDate) {
             try {
-                localDateDisplay = new Date(saveData.localSaveDate).toLocaleString();
+                const localDate = new Date(saveData.localSaveDate);
+                localDateDisplay = localDate.toLocaleString();
+                localTimestamp = localDate.getTime();
             } catch (error) {
                 console.warn('Could not parse local save date:', error);
                 localDateDisplay = 'Local save available';
@@ -776,7 +794,7 @@ function showSaveChoiceModal(saveData, context) {
             type: 'local',
             title: '💾 Local Save',
             description: `Your local saved game - Modified: ${localDateDisplay}`,
-            timestamp: Date.now() - 1000 // Slightly older than just now
+            timestamp: localTimestamp
         });
     }
 
@@ -1430,8 +1448,9 @@ async function checkRomSaveStatus(rom) {
 
     try {
         const result = await window.electronAPI.checkRomSaves(rom);
-        romSaveStatus.set(rom.id, result.hasSaves);
-        return result.hasSaves;
+        const hasSaves = result.hasLocal || result.hasCloud;
+        romSaveStatus.set(rom.id, hasSaves);
+        return hasSaves;
     } catch (error) {
         console.error(`Error checking saves for ROM ${rom.id}:`, error);
         return false;

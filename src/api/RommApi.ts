@@ -355,13 +355,14 @@ export class RommApi {
       const result = this.apiCall("get", "/api/saves", { params: { rom_id: romId } });
       console.log(`[ROMM API] Save list download initiated for ROM ${romId}`);
       const response = await result;
+      /*
       console.log(`[ROMM API] Save list response for ROM ${romId}:`, {
         success: response.success,
         hasData: !!response.data,
         dataType: response.data ? typeof response.data : "null",
         dataLength: Array.isArray(response.data) ? response.data.length : "N/A",
         error: response.error,
-      });
+      });*/
       return response;
     } catch (error: any) {
       console.error(`[ROMM API] Error downloading save list for ROM ${romId}:`, error.message);

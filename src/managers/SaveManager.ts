@@ -78,13 +78,14 @@ export class SaveManager {
 
       console.log(`[SAVE MANAGER] Calling RomM API downloadSave for ROM ${rom.id}`);
       const cloudResult = await this.rommClient.rommApi.downloadSave(rom.id);
+      /*
       console.log(`[SAVE MANAGER] RomM API response:`, {
         success: cloudResult.success,
         hasData: !!cloudResult.data,
         dataType: cloudResult.data ? typeof cloudResult.data : "null",
         dataLength: Array.isArray(cloudResult.data) ? cloudResult.data.length : "N/A",
         error: cloudResult.error,
-      });
+      });*/
 
       const saves = cloudResult.success && cloudResult.data ? cloudResult.data : [];
       console.log(`[SAVE MANAGER] Returning ${saves.length} cloud saves for ROM ${rom.id}`);
@@ -108,12 +109,13 @@ export class SaveManager {
       console.log(`[SAVE MANAGER] Checking local, cloud, and getting cloud saves...`);
       const [hasLocal, hasCloud, cloudSaves] = await Promise.all([this.hasLocalSaves(rom), this.hasCloudSaves(rom), this.getCloudSaves(rom)]);
 
+      /*
       console.log(`[SAVE MANAGER] Save check results for ROM ${rom.id}:`, {
         hasLocal,
         hasCloud,
         cloudSavesCount: cloudSaves.length,
         localSaveDir,
-      });
+      });*/
 
       return {
         success: true,
