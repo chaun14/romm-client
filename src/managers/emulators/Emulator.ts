@@ -149,7 +149,7 @@ export abstract class Emulator {
    * Setup emulator environment before launch
    * Override in subclasses for platform-specific setup
    */
-  public async setupEnvironment(rom: Rom, saveDir: string, rommAPI: RommApi | null, saveManager: SaveManager): Promise<EnvironmentSetupResult> {
+  public async setupEnvironment(rom: Rom, saveDir: string, rommAPI: RommApi | null, saveManager: SaveManager, configFolder: string): Promise<EnvironmentSetupResult> {
     // Default implementation - no special setup needed
     return { success: true };
   }
@@ -247,5 +247,14 @@ export abstract class Emulator {
       success: true,
       pid: emulatorProcess.pid,
     };
+  }
+
+  /**
+   * Start emulator in configuration mode with proper environment setup
+   * Each emulator can override this to setup their specific config environment
+   */
+  public async startInConfigMode(configFolder: string): Promise<{ success: boolean; error?: string; pid?: number }> {
+    // Default implementation - just call configureEmulatorInConfigMode
+    return this.configureEmulatorInConfigMode();
   }
 }

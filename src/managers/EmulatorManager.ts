@@ -192,7 +192,10 @@ export class EmulatorManager {
     }
 
     try {
-      return await emulator.setupEnvironment(rom, saveDir, this.rommClient.rommApi, this.rommClient.saveManager);
+      // Get the emulator-specific config folder
+      const emulatorConfigFolder = path.join(this.rommClient.getEmulatorConfigsFolder()!, emulatorKey);
+
+      return await emulator.setupEnvironment(rom, saveDir, this.rommClient.rommApi, this.rommClient.saveManager, emulatorConfigFolder);
     } catch (error: any) {
       return { success: false, error: error.message };
     }
@@ -253,8 +256,11 @@ export class EmulatorManager {
     }
 
     try {
-      // Use the new emulator class method
-      const result = await emulator.configureEmulatorInConfigMode();
+      // Get the emulator-specific config folder
+      const emulatorConfigFolder = path.join(this.rommClient.getEmulatorConfigsFolder()!, emulatorKey);
+
+      // Use the new emulator-specific config mode method
+      const result = await emulator.startInConfigMode(emulatorConfigFolder);
       return {
         success: result.success,
         error: result.error,

@@ -2,6 +2,7 @@ import { Emulator, EmulatorConfig, EnvironmentSetupResult, SaveComparisonResult,
 import { Rom } from "../../types/RommApi";
 import { RommApi } from "../../api/RommApi";
 import { SaveManager } from "../SaveManager";
+import { spawn } from "child_process";
 import * as fs from "fs/promises";
 import * as fsSync from "fs";
 import * as path from "path";
@@ -56,6 +57,43 @@ export class DolphinEmulator extends Emulator {
   }
 
   /**
+   * Start Dolphin in configuration mode with proper user directory setup
+   */
+  public async startInConfigMode(configFolder: string): Promise<{ success: boolean; error?: string; pid?: number }> {
+    try {
+      const emulatorPath = this.getExecutablePath();
+      if (!emulatorPath) {
+        return {
+          success: false,
+          error: `Dolphin path not configured`,
+        };
+      }
+
+      // Use the emulator-specific config folder as user directory
+      await fs.mkdir(configFolder, { recursive: true });
+      console.log(`Using emulator config folder as Dolphin user directory: ${configFolder}`);
+
+      // Launch Dolphin with the emulator-specific config folder as user directory
+      console.log(`Launching Dolphin in configuration mode: ${emulatorPath} -u "${configFolder}"`);
+      const emulatorProcess = spawn(emulatorPath, ["-u", configFolder], {
+        detached: false,
+        stdio: "ignore",
+      });
+
+      return {
+        success: true,
+        pid: emulatorProcess.pid,
+      };
+    } catch (error: any) {
+      console.error(`Failed to start Dolphin in config mode: ${error.message}`);
+      return {
+        success: false,
+        error: `Dolphin config mode failed: ${error.message}`,
+      };
+    }
+  }
+
+  /**
    * Prepare emulator arguments by replacing placeholders
    * Override to handle custom user directory
    */
@@ -93,11 +131,48 @@ export class DolphinEmulator extends Emulator {
     return true;
   }
 
-  public async setupEnvironment(rom: Rom, saveDir: string, rommAPI: RommApi | null, saveManager: SaveManager): Promise<EnvironmentSetupResult> {
+  public async setupEnvironment(rom: Rom, saveDir: string, rommAPI: RommApi | null, saveManager: SaveManager, configFolder: string): Promise<EnvironmentSetupResult> {
     try {
       // Use saveDir directly as the user directory for this ROM session
       const tempUserDir = saveDir;
       console.log(`Using ROM save directory as Dolphin user directory: ${tempUserDir}`);
+
+      // Copy emulator configs from the dedicated config folder
+      if (fsSync.existsSync(configFolder)) {
+        console.log(`Copying emulator configs from: ${configFolder}`);
+
+        const copyDirRecursive = async (src: string, dest: string): Promise<void> => {
+          const entries = await fs.readdir(src, { withFileTypes: true });
+
+          for (const entry of entries) {
+            const srcPath = path.join(src, entry.name);
+            const destPath = path.join(dest, entry.name);
+
+            if (entry.isDirectory()) {
+              await fs.mkdir(destPath, { recursive: true });
+              await copyDirRecursive(srcPath, destPath);
+            } else {
+              // Only copy if source is newer or destination doesn't exist
+              let shouldCopy = true;
+              if (fsSync.existsSync(destPath)) {
+                const srcStat = await fs.stat(srcPath);
+                const destStat = await fs.stat(destPath);
+                shouldCopy = srcStat.mtime > destStat.mtime;
+              }
+
+              if (shouldCopy) {
+                await fs.copyFile(srcPath, destPath);
+                console.log(`Copied config file: ${entry.name}`);
+              }
+            }
+          }
+        };
+
+        await copyDirRecursive(configFolder, tempUserDir);
+        console.log(`Synced emulator configs to user directory`);
+      } else {
+        console.log(`No emulator config folder found at: ${configFolder}`);
+      }
 
       // Determine if this is a Wii or GameCube game
       const isWiiGame = this.isWiiGame(rom);

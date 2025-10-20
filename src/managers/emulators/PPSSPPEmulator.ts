@@ -56,7 +56,62 @@ export class PPSSPPEmulator extends Emulator {
     return true;
   }
 
-  public async setupEnvironment(rom: Rom, saveDir: string, rommAPI: RommApi | null, saveManager: SaveManager): Promise<EnvironmentSetupResult> {
+  /**
+   * Start PPSSPP in configuration mode with proper portable setup
+   */
+  public async startInConfigMode(configFolder: string): Promise<{ success: boolean; error?: string; pid?: number }> {
+    try {
+      const emulatorPath = this.getExecutablePath();
+      if (!emulatorPath) {
+        return {
+          success: false,
+          error: `PPSSPP path not configured`,
+        };
+      }
+
+      const ppssppDir = path.dirname(emulatorPath);
+
+      // 1. Create portable.txt to enable portable mode
+      const portableTxtPath = path.join(ppssppDir, "portable.txt");
+      if (!fsSync.existsSync(portableTxtPath)) {
+        await fs.writeFile(portableTxtPath, "");
+        console.log(`Created portable.txt in PPSSPP directory for config mode`);
+      }
+
+      // 2. Use the emulator-specific config folder for memstick
+      await fs.mkdir(configFolder, { recursive: true });
+
+      // 3. Create installed.txt pointing to the emulator config folder
+      const installedTxtPath = path.join(ppssppDir, "installed.txt");
+      const memstickPathForInstalled = configFolder.replace(/\\/g, "/");
+      await fs.writeFile(installedTxtPath, memstickPathForInstalled);
+      console.log(`Created installed.txt pointing to emulator config folder: ${memstickPathForInstalled}`);
+
+      // Note: In config mode, we don't copy from default memstick
+      // The config folder will become the source for future sessions
+      console.log(`Using clean config folder for PPSSPP - no copying from default memstick`);
+
+      // 4. Launch PPSSPP in configuration mode
+      console.log(`Launching PPSSPP in configuration mode: ${emulatorPath}`);
+      const emulatorProcess = spawn(emulatorPath, [], {
+        detached: false,
+        stdio: "ignore",
+      });
+
+      return {
+        success: true,
+        pid: emulatorProcess.pid,
+      };
+    } catch (error: any) {
+      console.error(`Failed to start PPSSPP in config mode: ${error.message}`);
+      return {
+        success: false,
+        error: `PPSSPP config mode failed: ${error.message}`,
+      };
+    }
+  }
+
+  public async setupEnvironment(rom: Rom, saveDir: string, rommAPI: RommApi | null, saveManager: SaveManager, configFolder: string): Promise<EnvironmentSetupResult> {
     try {
       const ppssppDir = path.dirname(this.getExecutablePath()!);
 
@@ -77,12 +132,11 @@ export class PPSSPPEmulator extends Emulator {
       await fs.writeFile(installedTxtPath, memstickPathForInstalled);
       console.log(`Created installed.txt pointing to: ${memstickPathForInstalled}`);
 
-      // 4. Copy emulator's default memstick to ROM memstick (for configs)
-      const defaultMemstickDir = path.join(ppssppDir, "memstick");
-      if (fsSync.existsSync(defaultMemstickDir)) {
-        console.log(`Syncing emulator configs from: ${defaultMemstickDir}`);
+      // 4. Copy emulator's config folder to ROM memstick (for configs)
+      if (fsSync.existsSync(configFolder)) {
+        console.log(`Syncing emulator configs from: ${configFolder}`);
 
-        // Copy all folders except SAVEDATA
+        // Copy all folders except SAVEDATA (which is per-ROM)
         const copyDir = async (src: string, dest: string): Promise<void> => {
           try {
             await fs.mkdir(dest, { recursive: true });
@@ -124,8 +178,10 @@ export class PPSSPPEmulator extends Emulator {
           }
         };
 
-        await copyDir(defaultMemstickDir, romMemstickDir);
+        await copyDir(configFolder, romMemstickDir);
         console.log(`Synced emulator configs to ROM memstick`);
+      } else {
+        console.log(`No emulator config folder found at: ${configFolder}`);
       }
 
       // 5. Create a simple SAVEDATA directory (no game code extraction)
