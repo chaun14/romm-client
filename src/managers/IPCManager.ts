@@ -1,7 +1,7 @@
 import { app, ipcMain, BrowserWindow } from "electron";
 import { RommClient } from "../RomMClient";
 import { ProgressInfo, UpdateInfo } from "electron-updater/out/types";
-const { autoUpdater } = require("electron-updater");
+import { autoUpdater } from "electron-updater";
 import { RommApi } from "../api/RommApi";
 import { EmulatorManager } from "./EmulatorManager";
 
@@ -428,32 +428,77 @@ export class IPCManager {
         data: romdata?.fs_size_bytes,
       };
     });
-    // Emulator Launch
+    // Emulator Launch with complete save flow
     ipcMain.handle("roms:launch", async (event, { rom, emulatorPath }) => {
-      console.log("[IPC]" + `Launching ROM: ${rom.name} (ID: ${rom.id})`);
+      console.log("[IPC]" + `Launching ROM with saves flow: ${rom.name} (ID: ${rom.id})`);
+
       // Create progress callback to send updates to renderer
-      // Use event.sender instead of getAllWindows to ensure we send to the correct window
       const onProgress = (progress: any) => {
         console.log("[IPC]" + `Launch progress for ROM: ${rom.name} (ID: ${rom.id}): ${JSON.stringify(progress)}`);
         console.log("[IPC] Sending rom:download-progress event to frontend");
         event.sender.send("rom:download-progress", progress);
       };
 
-      // Create save upload success callback
-      const onSaveUploadSuccess = (rom: any) => {
-        event.sender.send("save:upload-success", { romId: rom.id, romName: rom.name });
+      // Create save choice callback
+      const onSaveChoice = async (saveData: any) => {
+        console.log("[IPC]" + `Showing save choice modal for ROM ${rom.id}`);
+
+        // Send modal data to renderer
+        event.sender.send("save:show-choice-modal", {
+          rom: saveData.rom,
+          hasLocal: saveData.hasLocal,
+          hasCloud: saveData.hasCloud,
+          cloudSaves: saveData.cloudSaves,
+          localSaveDir: saveData.localSaveDir,
+          localSaveDate: saveData.localSaveDate,
+        });
+
+        // Wait for user selection
+        return new Promise((resolve) => {
+          const handler = (_e: any, result: any) => {
+            console.log("[IPC]" + `Save choice received: ${result.choice}`);
+            ipcMain.removeListener("save:choice-selected", handler);
+            resolve(result);
+          };
+          ipcMain.once("save:choice-selected", handler);
+
+          // Timeout after 5 minutes
+          setTimeout(() => {
+            ipcMain.removeListener("save:choice-selected", handler);
+            resolve({ choice: "local" }); // Default to local if timeout
+          }, 300000);
+        });
       };
 
-      // Create download completion callback
-      const onDownloadComplete = (rom: any) => {
-        event.sender.send("rom:download-complete", { romId: rom.id, romName: rom.name });
-      };
+      if (this.rommClient && this.rommClient.romManager && this.rommClient.saveManager && this.emulatorManager) {
+        try {
+          // Start the complete launch flow with save handling
+          const result = await this.rommClient.romManager.launchRomWithSavesFlow(rom, this.rommClient.saveManager, this.emulatorManager, onProgress, onSaveChoice);
 
-      if (this.rommClient && this.rommClient.romManager) {
-        // Start the launch process asynchronously
-        this.rommClient.romManager.launchRom(rom, onProgress, onSaveUploadSuccess, onDownloadComplete);
-        // Return immediately to not block the UI
-        return { success: true };
+          if (result.success) {
+            event.sender.send("rom:launched", {
+              romId: rom.id,
+              romName: rom.name,
+              pid: result.pid,
+            });
+          } else {
+            event.sender.send("rom:launch-failed", {
+              romId: rom.id,
+              romName: rom.name,
+              error: result.error,
+            });
+          }
+
+          return result;
+        } catch (error: any) {
+          console.error("[IPC]" + `Launch error: ${error.message}`);
+          event.sender.send("rom:launch-failed", {
+            romId: rom.id,
+            romName: rom.name,
+            error: error.message,
+          });
+          return { success: false, error: error.message };
+        }
       }
       return { success: false, error: "RomManager not initialized" };
     });

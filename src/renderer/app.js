@@ -1,4 +1,4 @@
-// État de l'application
+// Application state
 let currentRoms = [];
 let currentPlatforms = [];
 let selectedRom = null;
@@ -715,50 +715,68 @@ function updateAppUpdateProgress(percent, info) {
     // Optionally display info if needed
 }
 
-function showSaveChoiceModal(saveComparison, romData) {
+function showSaveChoiceModal(saveData, context) {
+    console.log('[FRONTEND] showSaveChoiceModal called with:', saveData);
     const modal = document.getElementById('save-choice-modal');
     const optionsContainer = document.getElementById('save-options');
+
+    // Force hide modal first to ensure clean state
+    modal.classList.remove('show');
 
     // Clear previous options
     optionsContainer.innerHTML = '';
 
-    // Create save options array with timestamps for sorting
+    // Create save options array
     const options = [];
 
-    // Add only the 5 most recent cloud saves
-    if (saveComparison.hasCloud && saveComparison.cloudSaves.length > 0) {
-        const recentCloudSaves = saveComparison.cloudSaves.slice(0, 5);
+    // Add cloud saves (max 5 most recent)
+    if (saveData.hasCloud && saveData.cloudSaves && saveData.cloudSaves.length > 0) {
+        const recentCloudSaves = saveData.cloudSaves.slice(0, 5);
 
         recentCloudSaves.forEach((cloudSave, index) => {
+            // Extract filename from download_path or use fileName
+            const zipName = cloudSave.download_path
+                ? cloudSave.download_path.split('/').pop() || cloudSave.file_name || `save_${index + 1}.zip`
+                : cloudSave.file_name || `save_${index + 1}.zip`;
+
+            // Use created_at date if available, otherwise updated_at date, otherwise show "Unknown date"
+            const dateField = cloudSave.created_at || cloudSave.updated_at;
+            const dateDisplay = dateField
+                ? new Date(dateField).toLocaleString()
+                : 'Unknown date';
+
             options.push({
                 type: 'cloud',
                 saveId: cloudSave.id,
                 title: `☁️ Cloud Save ${recentCloudSaves.length > 1 ? `#${index + 1}` : ''}`,
-                description: `${cloudSave.fileName} - Last modified: ${cloudSave.updatedStr}`,
-                timestamp: new Date(cloudSave.updated).getTime()
+                description: `${zipName} - Created: ${dateDisplay}`,
+                timestamp: dateField ? new Date(dateField).getTime() : Date.now() - (recentCloudSaves.length - index) * 60000 // Fallback timestamps
             });
         });
     }
 
-    // Add local save with its timestamp
-    if (saveComparison.hasLocal) {
+    // Add local save
+    if (saveData.hasLocal) {
+        // Get the modification date of the local save directory
+        let localDateDisplay = 'Unknown date';
+        if (saveData.localSaveDate) {
+            try {
+                localDateDisplay = new Date(saveData.localSaveDate).toLocaleString();
+            } catch (error) {
+                console.warn('Could not parse local save date:', error);
+                localDateDisplay = 'Local save available';
+            }
+        }
+
         options.push({
             type: 'local',
             title: '💾 Local Save',
-            description: `Last modified: ${saveComparison.localSave.modifiedStr}`,
-            timestamp: saveComparison.localSave.modified
+            description: `Your local saved game - Modified: ${localDateDisplay}`,
+            timestamp: Date.now() - 1000 // Slightly older than just now
         });
     }
 
-    // Sort all options by timestamp (most recent first)
-    options.sort((a, b) => b.timestamp - a.timestamp);
-
-    // Mark the most recent save as recommended
-    if (options.length > 0) {
-        options[0].recommended = true;
-    }
-
-    // Add "New Game" option at the end
+    // Add "New Game" option
     options.push({
         type: 'none',
         title: '🆕 New Game',
@@ -766,6 +784,14 @@ function showSaveChoiceModal(saveComparison, romData) {
         recommended: false,
         timestamp: 0
     });
+
+    // Sort options by timestamp (most recent first)
+    options.sort((a, b) => b.timestamp - a.timestamp);
+
+    // Mark most recent as recommended (after sorting)
+    if (options.length > 0) {
+        options[0].recommended = true;
+    }
 
     // Create option buttons
     options.forEach(option => {
@@ -775,18 +801,47 @@ function showSaveChoiceModal(saveComparison, romData) {
             <h3>${option.title}${option.recommended ? ' <span class="recommended-badge">Recommended</span>' : ''}</h3>
             <p>${option.description}</p>
         `;
-        optionDiv.addEventListener('click', () => selectSaveAndLaunch(option.type, romData, option.saveId));
+        optionDiv.addEventListener('click', () => selectSaveFromModal(option.type, option.saveId));
         optionsContainer.appendChild(optionDiv);
     });
 
     // Show modal
     modal.classList.add('show');
 
-    // Close ROM modal
-    document.getElementById('rom-modal').classList.remove('show');
+    // Close other modals
+    const romModal = document.getElementById('rom-modal');
+    if (romModal) {
+        romModal.classList.remove('show');
+    }
+
+    const downloadModal = document.getElementById('download-progress-modal');
+    if (downloadModal) {
+        downloadModal.classList.remove('show');
+    }
 }
 
+/**
+ * New function: Send save choice back to main process via IPC
+ * This is called from the modal triggered by launchRomWithSavesFlow
+ */
+async function selectSaveFromModal(saveChoice, saveId = null) {
+    console.log(`[FRONTEND] selectSaveFromModal called with choice: ${saveChoice}, saveId: ${saveId}`);
+
+    // Hide modal
+    const modal = document.getElementById('save-choice-modal');
+    modal.classList.remove('show');
+
+    // Send the choice back to main process
+    window.electronEvents.sendSaveChoice(saveChoice, saveId);
+}
+
+/**
+ * Old function: For legacy flow with emulator.launchWithSaveChoice
+ * Keeping for backward compatibility
+ */
 async function selectSaveAndLaunch(saveChoice, romData, saveId = null) {
+    console.log(`[FRONTEND] selectSaveAndLaunch - Old flow: ${saveChoice}${saveId ? ` (ID: ${saveId})` : ''}`);
+
     // Hide modal
     document.getElementById('save-choice-modal').classList.remove('show');
 
@@ -795,6 +850,8 @@ async function selectSaveAndLaunch(saveChoice, romData, saveId = null) {
 
     // Launch with selected save (include saveId for cloud saves)
     const result = await window.electronAPI.emulator.launchWithSaveChoice(romData, saveChoice, saveId);
+
+
 
     if (result.success) {
         showNotification(`ROM launched: ${romData.rom.name}`, 'success');
@@ -1435,22 +1492,32 @@ async function loadStatsBar() {
 // Initialization
 document.addEventListener('DOMContentLoaded', async () => {
     // Attach download:progress listener globally
-    console.log('[FRONTEND] Attaching download:progress listener at app startup');
     window.electronAPI.removeDownloadProgressListener();
     window.electronAPI.onRomDownloadProgress((progress) => {
-        console.log('[FRONTEND] Received rom:download-progress', progress);
         updateDownloadProgress(progress);
     });
-    console.log('[FRONTEND] download:progress listener attached');
-    // Setup navigation between views
-    console.log('Setting up navigation...');
-    console.log('Available views:', document.querySelectorAll('.view').length);
-    document.querySelectorAll('.view').forEach(view => console.log('Found view:', view.id));
 
+    // Attach save choice modal listener
+    window.electronEvents.removeSaveChoiceListener?.();
+    window.electronEvents.onSaveChoiceModal((saveData) => {
+        showSaveChoiceModal(saveData, { rom: saveData.rom });
+    });
+
+    // Attach ROM launch event listeners
+    window.electronEvents.removeRomLaunchListeners?.();
+    window.electronEvents.onRomLaunched((data) => {
+        hideDownloadProgressModal();
+        showNotification(`ROM launched: ${data.romName} (PID: ${data.pid})`, 'success');
+    });
+    window.electronEvents.onRomLaunchFailed((data) => {
+        hideDownloadProgressModal();
+        showNotification(`Launch failed: ${data.error}`, 'error');
+    });
+
+    // Setup navigation between views
     document.querySelectorAll('.nav-item').forEach(item => {
         item.addEventListener('click', () => {
             const viewName = item.dataset.view;
-            console.log(`Navigating to: ${viewName}`);
 
             // Update navigation buttons
             document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
@@ -1458,17 +1525,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             // Display the view - use CSS classes only, don't manipulate style.display
             document.querySelectorAll('.view').forEach(view => {
-                console.log(`Removing active from view: ${view.id}`);
                 view.classList.remove('active');
             });
             const targetView = document.getElementById(`${viewName}-view`);
             if (targetView) {
                 targetView.classList.add('active');
-                console.log(`Added active to view: ${viewName}-view`);
-            } else {
-                console.error(`View element not found: ${viewName}-view`);
-                console.log('Available elements with -view:', document.querySelectorAll('[id*="-view"]').length);
-                document.querySelectorAll('[id*="-view"]').forEach(el => console.log('Element:', el.id));
             }
 
             // Reset platform view when switching views
@@ -1748,7 +1809,7 @@ function updateDownloadProgress(percent) {
     if (progressPercent) {
         progressPercent.textContent = `${Math.round(percent)}%`;
     }
-    // Affiche la taille téléchargée et totale si possible
+    // Display downloaded and total size if possible
     if (progressText && arguments.length > 1) {
         const info = arguments[1];
         progressText.textContent = `${info.downloaded} MB / ${info.total} MB (${Math.round(percent)}%)`;

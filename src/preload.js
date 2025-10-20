@@ -159,6 +159,29 @@ contextBridge.exposeInMainWorld('electronEvents', {
         ipcRenderer.removeAllListeners('save:upload-success');
     },
 
+    // Save choice modal events
+    onSaveChoiceModal: (callback) => {
+        ipcRenderer.on('save:show-choice-modal', (event, data) => callback(data));
+    },
+    sendSaveChoice: (choice, saveId) => {
+        ipcRenderer.send('save:choice-selected', { choice, saveId });
+    },
+    removeSaveChoiceListener: () => {
+        ipcRenderer.removeAllListeners('save:show-choice-modal');
+    },
+
+    // ROM launch events
+    onRomLaunched: (callback) => {
+        ipcRenderer.on('rom:launched', (event, data) => callback(data));
+    },
+    onRomLaunchFailed: (callback) => {
+        ipcRenderer.on('rom:launch-failed', (event, data) => callback(data));
+    },
+    removeRomLaunchListeners: () => {
+        ipcRenderer.removeAllListeners('rom:launched');
+        ipcRenderer.removeAllListeners('rom:launch-failed');
+    },
+
     // Update events
     onUpdateAvailable: (callback) => {
         ipcRenderer.on('update-available', (event, data) => callback(data));

@@ -172,6 +172,19 @@ export class EmulatorManager {
   }
 
   /**
+   * Get emulator instance for a specific platform
+   */
+  getEmulatorForPlatform(platform: string): Emulator | null {
+    // Find the emulator that supports this platform
+    for (const [key, spec] of Object.entries(this.supportedEmulators)) {
+      if (spec.platforms.includes(platform)) {
+        return this.getEmulatorInstance(key);
+      }
+    }
+    return null;
+  }
+
+  /**
    * Get emulator instance for advanced operations
    */
   getEmulator(emulatorKey: string): Emulator | null {

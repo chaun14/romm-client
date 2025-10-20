@@ -39,6 +39,18 @@ export class RommApi {
   }
 
   private async handleApiError(error: any): Promise<{ success: false; error: string }> {
+    console.error(`[ROMM API] API Error details:`, {
+      message: error.message,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      headers: error.response?.headers,
+      url: error.config?.url,
+      method: error.config?.method,
+      hasSessionToken: !!this.sessionToken,
+      hasCsrfToken: !!this.csrfToken,
+    });
+
     return {
       success: false,
       error: error.response?.data?.detail || error.response?.data?.message || error.message,
@@ -155,7 +167,8 @@ export class RommApi {
         const htmlContent = response.data;
 
         // Extract CSRF from HTML
-        const csrfMatch = htmlContent.match(/name="csrf_token"\s+value="([^"]+)"/) || htmlContent.match(/csrf_token["\s]*:\s*["']([^"']+)["']/) || htmlContent.match(/window\.csrf_token\s*=\s*["']([^"']+)["']/);
+        const csrfMatch =
+          htmlContent.match(/name="csrf_token"\s+value="([^"]+)"/) || htmlContent.match(/csrf_token["\s]*:\s*["']([^"']+)["']/) || htmlContent.match(/window\.csrf_token\s*=\s*["']([^"']+)["']/);
 
         if (csrfMatch?.[1]) {
           this.csrfToken = csrfMatch[1];
@@ -337,7 +350,23 @@ export class RommApi {
   }
 
   async downloadSave(romId: number): Promise<ApiResponse> {
-    return this.apiCall("get", "/api/saves", { params: { rom_id: romId } });
+    console.log(`[ROMM API] Downloading save list for ROM ID: ${romId}`);
+    try {
+      const result = this.apiCall("get", "/api/saves", { params: { rom_id: romId } });
+      console.log(`[ROMM API] Save list download initiated for ROM ${romId}`);
+      const response = await result;
+      console.log(`[ROMM API] Save list response for ROM ${romId}:`, {
+        success: response.success,
+        hasData: !!response.data,
+        dataType: response.data ? typeof response.data : "null",
+        dataLength: Array.isArray(response.data) ? response.data.length : "N/A",
+        error: response.error,
+      });
+      return response;
+    } catch (error: any) {
+      console.error(`[ROMM API] Error downloading save list for ROM ${romId}:`, error.message);
+      return this.handleApiError(error);
+    }
   }
 
   async uploadSave(romId: number, savePath: string, emulator?: string): Promise<ApiResponse> {
@@ -346,10 +375,12 @@ export class RommApi {
 
       // Refresh CSRF token if needed
       try {
-        const response = await this.client!.get("/api/heartbeat");
-        const cookies = this.parseCookiesFromHeaders(response.headers["set-cookie"] || []);
+        const heartbeatResponse = await this.client!.get("/api/heartbeat");
+        const cookies = this.parseCookiesFromHeaders(heartbeatResponse.headers["set-cookie"] || []);
         const freshToken = cookies["romm_csrftoken"] || cookies["csrftoken"];
-        if (freshToken) this.csrfToken = freshToken;
+        if (freshToken) {
+          this.csrfToken = freshToken;
+        }
       } catch {}
 
       const formData = new FormData();
@@ -362,13 +393,20 @@ export class RommApi {
 
       const response = await this.client!.post(`/api/saves`, formData, {
         params: { rom_id: romId },
-        headers: { ...formData.getHeaders(), ...(this.csrfToken && { "X-CSRFToken": this.csrfToken }) },
+        headers: {
+          ...formData.getHeaders(),
+          ...(this.csrfToken && {
+            "X-CSRFToken": this.csrfToken,
+            Cookie: `${this.sessionToken}; romm_csrftoken=${this.csrfToken}`,
+          }),
+        },
         maxContentLength: Infinity,
         maxBodyLength: Infinity,
       });
 
       return { success: true, data: response.data };
     } catch (error: any) {
+      console.error(`[ROMM API] Upload save failed: ${error.message}`);
       return this.handleApiError(error);
     }
   }
@@ -376,11 +414,30 @@ export class RommApi {
   async downloadSaveFile(saveOrPath: string | any): Promise<ApiResponse<Buffer>> {
     try {
       const downloadPath = typeof saveOrPath === "string" ? saveOrPath : saveOrPath.download_path;
-      if (!downloadPath) throw new Error("No download_path provided");
+      console.log(`[ROMM API] Downloading save file:`, {
+        inputType: typeof saveOrPath,
+        downloadPath,
+        hasDownloadPath: !!downloadPath,
+        saveId: typeof saveOrPath === "object" ? saveOrPath.id : "N/A",
+        fileName: typeof saveOrPath === "object" ? saveOrPath.file_name : "N/A",
+      });
 
+      if (!downloadPath) {
+        console.error(`[ROMM API] No download_path provided for save file download`);
+        throw new Error("No download_path provided");
+      }
+
+      console.log(`[ROMM API] Starting download from: ${downloadPath}`);
       const response = await this.client!.get(downloadPath, { responseType: "arraybuffer" });
+      console.log(`[ROMM API] Save file download completed:`, {
+        status: response.status,
+        contentLength: response.data ? response.data.length : "unknown",
+        contentType: response.headers["content-type"],
+      });
+
       return { success: true, data: response.data };
     } catch (error: any) {
+      console.error(`[ROMM API] Error downloading save file:`, error.message);
       return this.handleApiError(error);
     }
   }

@@ -5,6 +5,8 @@ import AdmZip from "adm-zip";
 import { RommClient } from "../RomMClient";
 import { LocalRom, Rom } from "../types/RommApi";
 import { HashCalculator } from "../utils/HashCalculator";
+import { SaveManager } from "./SaveManager";
+import { EmulatorManager } from "./EmulatorManager";
 import { on } from "events";
 
 export class RomManager {
@@ -256,8 +258,305 @@ export class RomManager {
       }
     }
 
-    // then we need to setup the working directory for the emulator
-    // then we check what saves are available for this ROM and prompt the user to select one if needed
-    // once we have the save file we need to launch the emulator with the ROM and the save file
+    // Now that we have the ROM, proceed with save preparation
+    return { success: true, rom, localRom };
+  }
+
+  /**
+   * Complete launch flow: download if needed, setup emulator, check saves, launch with save handling
+   */
+  async launchRomWithSavesFlow(
+    rom: Rom,
+    saveManager: SaveManager,
+    emulatorManager: EmulatorManager,
+    onProgress: (progress: any) => void,
+    onSaveChoice?: (saveData: any) => Promise<any>
+  ): Promise<any> {
+    try {
+      console.log("[LAUNCH FLOW] Starting complete launch flow for ROM:", rom.name);
+
+      // Step 1: Ensure ROM is available (download if needed)
+      const launchResult = await this.launchRom(rom, onProgress, () => {}, onProgress);
+      if (!launchResult.success) {
+        throw new Error("Failed to prepare ROM for launch");
+      }
+
+      const { localRom } = launchResult;
+
+      // Step 2: Find appropriate emulator for this ROM
+      console.log("[LAUNCH FLOW] Finding emulator for platform:", rom.platform_slug);
+      const { emulator, emulatorKey } = this.findEmulatorForRomWithKey(rom, emulatorManager);
+      if (!emulator) {
+        throw new Error(`No emulator configured for platform: ${rom.platform_slug}`);
+      }
+
+      console.log("[LAUNCH FLOW] Using emulator:", emulator.constructor.name);
+
+      // Step 3: Setup save directory
+      const savesFolder = this.rommClient.getSavesFolder();
+      if (!savesFolder) {
+        throw new Error("Saves folder not configured");
+      }
+
+      const tempSaveDir = path.join(savesFolder, rom.platform_slug, `rom_${rom.id}_session`);
+      if (!fs.existsSync(tempSaveDir)) {
+        fs.mkdirSync(tempSaveDir, { recursive: true });
+      }
+
+      console.log("[LAUNCH FLOW] Temp save directory:", tempSaveDir);
+
+      // Step 4: Setup emulator environment (configs, portable mode, etc)
+      const emulatorsConfigsFolder = this.rommClient.getEmulatorConfigsFolder();
+      if (!emulatorsConfigsFolder) {
+        throw new Error("Emulator configs folder not configured");
+      }
+
+      // Use emulator key (ppsspp, dolphin) not platform slug (psp, gc)
+      const configFolder = path.join(emulatorsConfigsFolder, emulatorKey);
+      console.log("[LAUNCH FLOW] Setup emulator environment with config folder:", configFolder);
+
+      const setupResult = await emulator.setupEnvironment(rom, tempSaveDir, this.rommClient.rommApi, saveManager, configFolder);
+      if (!setupResult.success) {
+        throw new Error(`Failed to setup emulator environment: ${setupResult.error}`);
+      }
+
+      // Step 5: Check for available saves (local and cloud)
+      console.log("[LAUNCH FLOW] Checking available saves...");
+
+      const saveComparison = await emulator.getSaveComparison(rom, tempSaveDir, this.rommClient.rommApi, this.rommClient.saveManager);
+      if (!saveComparison.success) {
+        throw new Error(`Failed to check saves: ${saveComparison.error}`);
+      }
+
+      const saveData = {
+        hasLocal: saveComparison.data.hasLocal,
+        hasCloud: saveComparison.data.hasCloud,
+        cloudSaves: saveComparison.data.cloudSaves,
+        localSaveDir: saveComparison.data.localSave,
+      };
+
+      // Calculate local save modification date if local saves exist
+      let localSaveDate: string | null = null;
+      if (saveData.hasLocal) {
+        try {
+          // Use the persistent save directory from SaveManager instead of emulator temp directory
+          const persistentSaveDir = saveManager.getLocalSaveDir(rom);
+          if (fs.existsSync(persistentSaveDir)) {
+            const stats = fs.statSync(persistentSaveDir);
+            localSaveDate = new Date(stats.mtime).toISOString();
+          }
+        } catch (error) {
+          console.warn(`[LAUNCH FLOW] Could not get local save date for ROM ${rom.id}:`, error);
+        }
+      }
+
+      console.log("[LAUNCH FLOW] Save data:", {
+        hasLocal: saveData.hasLocal,
+        hasCloud: saveData.hasCloud,
+        localSaveDate,
+      });
+
+      // Step 6: If there are saves, let user choose or use local by default
+      let selectedSaveOption = "local";
+      let selectedSaveId: number | undefined;
+      if (saveData.hasLocal || saveData.hasCloud) {
+        // Call save choice callback if provided
+        if (onSaveChoice) {
+          // Create a serializable version of the ROM object for IPC
+          const serializableRom = {
+            id: rom.id,
+            name: rom.name,
+            platform_slug: rom.platform_slug,
+            platform_name: rom.platform_name,
+            platform_display_name: rom.platform_display_name,
+            regions: rom.regions,
+            fs_size_bytes: rom.fs_size_bytes,
+            path_cover_small: rom.path_cover_small,
+            url_cover: rom.url_cover,
+            files: rom.files,
+            crc_hash: rom.crc_hash,
+            md5_hash: rom.md5_hash,
+            sha1_hash: rom.sha1_hash,
+          };
+
+          const choiceResult = await onSaveChoice({
+            hasLocal: saveData.hasLocal,
+            hasCloud: saveData.hasCloud,
+            cloudSaves: saveData.cloudSaves,
+            localSaveDir: saveData.localSaveDir,
+            localSaveDate,
+            rom: serializableRom,
+          });
+          selectedSaveOption = choiceResult.choice || "local";
+          selectedSaveId = choiceResult.saveId;
+        }
+      }
+
+      // Step 7: Prepare saves for emulator
+      console.log("[LAUNCH FLOW] Preparing saves with option:", selectedSaveOption, selectedSaveId ? `(ID: ${selectedSaveId})` : "");
+      if (selectedSaveOption === "local" && saveData.hasLocal) {
+        const prepareResult = await emulator.handleSavePreparation(rom, tempSaveDir, saveData.localSaveDir, saveManager);
+        if (!prepareResult.success) {
+          console.warn("[LAUNCH FLOW] Save preparation failed:", prepareResult.error);
+        }
+      }
+
+      // Step 8: Get the ROM file path
+      const romFilePath = this.findRomFileInPath(localRom.localPath);
+      if (!romFilePath) {
+        throw new Error("Could not find ROM file in directory");
+      }
+
+      console.log("[LAUNCH FLOW] ROM file path:", romFilePath);
+
+      let finalLaunchResult: any;
+
+      if (selectedSaveOption === "cloud" && selectedSaveId) {
+        // For cloud saves, use handleSaveChoice which downloads the save and launches
+        console.log("[LAUNCH FLOW] Handling cloud save choice for save ID:", selectedSaveId);
+        const romData = {
+          rom,
+          finalRomPath: romFilePath,
+          saveDir: tempSaveDir,
+        };
+        finalLaunchResult = await emulator.handleSaveChoice(romData, "cloud", saveManager, this.rommClient.rommApi, selectedSaveId);
+        if (!finalLaunchResult.success) {
+          throw new Error(`Failed to handle cloud save choice: ${finalLaunchResult.error}`);
+        }
+        // Cloud saves handle their own process monitoring in handleSaveChoice
+      } else {
+        // For local saves or no saves, launch normally
+        console.log("[LAUNCH FLOW] Launching emulator normally...");
+        const launchGameResult = await emulator.launch(romFilePath, tempSaveDir);
+        if (!launchGameResult.success || !launchGameResult.process) {
+          throw new Error(`Failed to launch emulator: ${launchGameResult.error}`);
+        }
+
+        // Setup save sync on emulator close immediately after launch
+        launchGameResult.process.on("exit", async (code: number) => {
+          console.log("[LAUNCH FLOW] Emulator closed with code:", code);
+
+          // Sync saves back
+          const syncResult = await emulator.handleSaveSync(rom, tempSaveDir, this.rommClient.rommApi, saveManager);
+          if (syncResult.success) {
+            console.log("[LAUNCH FLOW] Saves synced successfully");
+          } else {
+            console.error("[LAUNCH FLOW] Save sync failed:", syncResult.error);
+          }
+
+          // Cleanup temp save directory
+          try {
+            // Use a more robust cleanup that handles nested directories
+            const cleanupDir = async (dirPath: string): Promise<void> => {
+              if (!fs.existsSync(dirPath)) return;
+
+              const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+
+              for (const entry of entries) {
+                const fullPath = path.join(dirPath, entry.name);
+                if (entry.isDirectory()) {
+                  await cleanupDir(fullPath);
+                } else {
+                  await fs.promises.unlink(fullPath);
+                }
+              }
+
+              await fs.promises.rmdir(dirPath);
+            };
+
+            await cleanupDir(tempSaveDir);
+            console.log("[LAUNCH FLOW] Cleaned up temp save directory");
+          } catch (err: any) {
+            console.warn("[LAUNCH FLOW] Cleanup failed:", err.message);
+            // Try alternative cleanup method
+            try {
+              const { exec } = require("child_process");
+              const { promisify } = require("util");
+              const execAsync = promisify(exec);
+              await execAsync(`rmdir /s /q "${tempSaveDir}"`, { windowsHide: true });
+              console.log("[LAUNCH FLOW] Cleaned up temp save directory using alternative method");
+            } catch (fallbackErr: any) {
+              console.warn("[LAUNCH FLOW] Alternative cleanup also failed:", fallbackErr.message);
+            }
+          }
+        });
+
+        finalLaunchResult = {
+          success: true,
+          message: `ROM launched: ${rom.name}`,
+          pid: launchGameResult.process.pid,
+          romPath: romFilePath,
+          saveDir: tempSaveDir,
+          // Removed process object as it's not serializable for IPC
+        };
+      }
+
+      return finalLaunchResult;
+    } catch (error: any) {
+      console.error("[LAUNCH FLOW] Error:", error.message);
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  }
+
+  /**
+   * Find the appropriate emulator for a ROM based on platform
+   * Returns both the emulator instance and its key
+   */
+  private findEmulatorForRomWithKey(rom: Rom, emulatorManager: EmulatorManager): { emulator: any; emulatorKey: string } | { emulator: null; emulatorKey: string } {
+    const supportedEmulators = emulatorManager.getSupportedEmulators();
+
+    for (const [key, spec] of Object.entries(supportedEmulators)) {
+      if (spec.platforms.includes(rom.platform_slug)) {
+        const emulator = emulatorManager.getEmulator(key);
+        if (emulator && emulator.isConfigured()) {
+          return { emulator, emulatorKey: key };
+        }
+      }
+    }
+
+    return { emulator: null, emulatorKey: "" };
+  }
+
+  /**
+   * Find the appropriate emulator for a ROM based on platform
+   */
+  private findEmulatorForRom(rom: Rom, emulatorManager: EmulatorManager): any {
+    const supportedEmulators = emulatorManager.getSupportedEmulators();
+
+    for (const [key, spec] of Object.entries(supportedEmulators)) {
+      if (spec.platforms.includes(rom.platform_slug)) {
+        const emulator = emulatorManager.getEmulator(key);
+        if (emulator && emulator.isConfigured()) {
+          return emulator;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Find the first ROM file in a directory
+   */
+  private findRomFileInPath(dirPath: string): string | null {
+    // Common ROM file extensions
+    const romExtensions = [".iso", ".cso", ".pbp", ".elf", ".gcm", ".iso", ".wbfs", ".bin"];
+
+    if (!fs.existsSync(dirPath)) {
+      return null;
+    }
+
+    const files = fs.readdirSync(dirPath);
+    for (const file of files) {
+      const ext = path.extname(file).toLowerCase();
+      if (romExtensions.includes(ext)) {
+        return path.join(dirPath, file);
+      }
+    }
+
+    return null;
   }
 }

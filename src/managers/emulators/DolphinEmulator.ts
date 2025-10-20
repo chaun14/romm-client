@@ -6,7 +6,8 @@ import { spawn } from "child_process";
 import * as fs from "fs/promises";
 import * as fsSync from "fs";
 import * as path from "path";
-
+import AdmZip from "adm-zip";
+import * as os from "os";
 /**
  * Dolphin (Wii/GameCube) Emulator implementation
  */
@@ -256,6 +257,65 @@ export class DolphinEmulator extends Emulator {
     }
   }
 
+  /**
+   * Handle save preparation before launch
+   * Copies local saves from the save manager's directory to Dolphin's Wii/GC directories
+   */
+  public async handleSavePreparation(rom: Rom, saveDir: string, localSaveDir: string, saveManager: SaveManager): Promise<{ success: boolean; error?: string }> {
+    try {
+      const isWiiGame = this.isWiiGame(rom);
+      const dolphinSaveDir = isWiiGame ? path.join(saveDir, "Wii") : path.join(saveDir, "GC");
+
+      // Check if there are local saves
+      if (!fsSync.existsSync(localSaveDir)) {
+        console.log(`[Dolphin] No local save directory found: ${localSaveDir}`);
+        return { success: true };
+      }
+
+      // Get save files
+      const saveFiles = await fs.readdir(localSaveDir, { recursive: true });
+      const filesToCopy = saveFiles.filter((file) => {
+        const filePath = path.join(localSaveDir, file.toString());
+        const stats = fsSync.statSync(filePath);
+        return stats.isFile();
+      });
+
+      if (filesToCopy.length === 0) {
+        console.log(`[Dolphin] No save files found in: ${localSaveDir}`);
+        return { success: true };
+      }
+
+      console.log(`[Dolphin] Found ${filesToCopy.length} save files - copying to emulator...`);
+
+      // Ensure Dolphin save directory exists
+      await fs.mkdir(dolphinSaveDir, { recursive: true });
+
+      // Copy save files to appropriate Dolphin directory
+      for (const file of filesToCopy) {
+        const srcPath = path.join(localSaveDir, file.toString());
+        const destPath = path.join(dolphinSaveDir, file.toString());
+
+        try {
+          // Create directory structure if needed
+          const destDir = path.dirname(destPath);
+          await fs.mkdir(destDir, { recursive: true });
+
+          // Copy the file
+          await fs.copyFile(srcPath, destPath);
+          console.log(`[Dolphin] Copied save: ${file}`);
+        } catch (err: any) {
+          console.warn(`[Dolphin] Failed to copy save file ${file}: ${err.message}`);
+        }
+      }
+
+      console.log(`[Dolphin] Save preparation completed`);
+      return { success: true };
+    } catch (error: any) {
+      console.error(`[Dolphin] Error preparing saves: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  }
+
   public async getSaveComparison(rom: Rom, saveDir: string, rommAPI: RommApi | null, saveManager: SaveManager): Promise<SaveComparisonResult> {
     try {
       // Determine if this is a Wii or GameCube game
@@ -282,8 +342,15 @@ export class DolphinEmulator extends Emulator {
       }
 
       // Check for cloud saves
+      console.log(`[DOLPHIN EMULATOR] Checking cloud saves for ROM ${rom.id} (${rom.name})`);
       const cloudResult = await rommAPI.downloadSave(rom.id);
       const hasCloud = cloudResult.success && cloudResult.data && Array.isArray(cloudResult.data) && cloudResult.data.length > 0;
+      console.log(`[DOLPHIN EMULATOR] Cloud saves result for ROM ${rom.id}:`, {
+        success: cloudResult.success,
+        hasData: !!cloudResult.data,
+        dataLength: Array.isArray(cloudResult.data) ? cloudResult.data.length : 0,
+        hasCloud,
+      });
 
       return {
         success: true,
@@ -318,14 +385,74 @@ export class DolphinEmulator extends Emulator {
         throw new Error("RomM API is not available");
       }
 
-      // For now, just log that we would upload saves
-      // TODO: Implement proper save directory upload
-      console.log(`Save upload not yet implemented for Dolphin emulator`);
+      // Check if save directory exists and has files
+      if (!fsSync.existsSync(dolphinSaveDir)) {
+        console.log(`No save directory found at ${dolphinSaveDir}, skipping upload`);
+        return {
+          success: true,
+          message: "No saves to upload",
+        };
+      }
 
-      return {
-        success: true,
-        message: "Save sync completed (placeholder)",
-      };
+      // Check if there are any save files
+      const saveFiles = await fs.readdir(dolphinSaveDir, { recursive: true });
+      const actualFiles = saveFiles.filter((file: string) => {
+        const filePath = path.join(dolphinSaveDir, file);
+        const stat = fsSync.statSync(filePath);
+        return stat.isFile();
+      });
+
+      if (actualFiles.length === 0) {
+        console.log(`No save files found in ${dolphinSaveDir}, skipping upload`);
+        return {
+          success: true,
+          message: "No saves to upload",
+        };
+      }
+
+      console.log(`Found ${actualFiles.length} save files to upload`);
+
+      // Create a temporary ZIP file
+      const tempDir = os.tmpdir();
+      const tempZipPath = path.join(tempDir, `dolphin_save_${rom.id}_${Date.now()}.zip`);
+
+      try {
+        // Create ZIP file from save directory
+        const zip = new AdmZip();
+
+        // Add all files from the save directory to the ZIP
+        zip.addLocalFolder(dolphinSaveDir, "");
+
+        // Write ZIP to temporary file
+        console.log(`Creating ZIP file: ${tempZipPath}`);
+        zip.writeZip(tempZipPath);
+
+        // Upload to RomM
+        const uploadResult = await rommAPI.uploadSave(rom.id, tempZipPath, isWiiGame ? "wii" : "gamecube");
+        if (!uploadResult.success) {
+          console.error(`Failed to upload saves to RomM: ${uploadResult.error}`);
+          return {
+            success: false,
+            error: uploadResult.error || "Upload failed",
+          };
+        }
+
+        console.log(`Successfully uploaded saves to RomM for ROM ${rom.id}`);
+        return {
+          success: true,
+          message: "Save sync completed",
+        };
+      } finally {
+        // Clean up temporary ZIP file
+        try {
+          if (fsSync.existsSync(tempZipPath)) {
+            await fs.unlink(tempZipPath);
+            console.log(`Cleaned up temporary ZIP file: ${tempZipPath}`);
+          }
+        } catch (cleanupError: any) {
+          console.warn(`Failed to clean up temporary ZIP file: ${cleanupError.message}`);
+        }
+      }
     } catch (saveError: any) {
       console.error(`Error uploading saves: ${saveError.message}`);
       return {
@@ -346,18 +473,62 @@ export class DolphinEmulator extends Emulator {
 
       // Handle save loading based on choice
       if (saveChoice === "cloud") {
-        console.log(`Loading cloud save${saveId ? ` #${saveId}` : ""}...`);
+        console.log(`[DOLPHIN EMULATOR] User chose cloud save${saveId ? ` #${saveId}` : ""} for ROM ${rom.id}`);
         if (!rommAPI) {
+          console.error(`[DOLPHIN EMULATOR] RomM API is not available for cloud save download`);
           throw new Error("RomM API is not available");
         }
-        // For now, just log that we would download saves
-        // TODO: Implement proper cloud save download
-        console.log(`Cloud save download not yet implemented for Dolphin emulator`);
+
+        if (!saveId) {
+          console.error(`[DOLPHIN EMULATOR] No saveId provided for cloud save download`);
+          throw new Error("No save ID provided for cloud save");
+        }
+
+        console.log(`[DOLPHIN EMULATOR] Downloading cloud save #${saveId} to ${dolphinSaveDir}`);
+
+        // Get the specific save data
+        const saveListResult = await rommAPI.downloadSave(rom.id);
+        if (!saveListResult.success || !saveListResult.data) {
+          console.error(`[DOLPHIN EMULATOR] Failed to get save list for ROM ${rom.id}`);
+          throw new Error("Failed to get save list from RomM");
+        }
+
+        const saveData = saveListResult.data.find((save: any) => save.id === saveId);
+        if (!saveData) {
+          console.error(`[DOLPHIN EMULATOR] Save #${saveId} not found in save list for ROM ${rom.id}`);
+          throw new Error(`Save ${saveId} not found`);
+        }
+
+        console.log(`[DOLPHIN EMULATOR] Found save data:`, {
+          id: saveData.id,
+          fileName: saveData.file_name,
+          downloadPath: saveData.download_path,
+        });
+
+        // Download the save file
+        console.log(`[DOLPHIN EMULATOR] Downloading save file from: ${saveData.download_path}`);
+        const downloadResult = await rommAPI.downloadSaveFile(saveData);
+        if (!downloadResult.success || !downloadResult.data) {
+          console.error(`[DOLPHIN EMULATOR] Failed to download save file #${saveId}`);
+          throw new Error("Failed to download save file");
+        }
+
+        console.log(`[DOLPHIN EMULATOR] Downloaded ${downloadResult.data.length} bytes, extracting to ${dolphinSaveDir}`);
+
+        // Extract the ZIP file
+        const zip = new AdmZip(downloadResult.data);
+        zip.extractAllTo(dolphinSaveDir, true);
+
+        console.log(`[DOLPHIN EMULATOR] Save extracted successfully to ${dolphinSaveDir}`);
+
+        // Verify extraction
+        const extractedFiles = await fs.readdir(dolphinSaveDir, { recursive: true });
+        console.log(`[DOLPHIN EMULATOR] Extracted files:`, extractedFiles);
       } else if (saveChoice === "local") {
-        console.log(`Using existing local save`);
+        console.log(`[DOLPHIN EMULATOR] Using existing local save for ROM ${rom.id}`);
         // Local saves should already be in the Dolphin directory
       } else if (saveChoice === "none") {
-        console.log(`Starting with no save (fresh start)`);
+        console.log(`[DOLPHIN EMULATOR] Starting with no save (fresh start) for ROM ${rom.id}`);
         // Clear the Dolphin save directory
         await this.clearSaveDirectories([dolphinSaveDir]);
       }

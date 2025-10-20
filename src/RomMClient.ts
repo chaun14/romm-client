@@ -64,6 +64,21 @@ export class RommClient extends BrowserWindow {
 
     this.setupFolders();
 
+    // Recover any lost saves from previous sessions
+    if (this.saveManager) {
+      console.log("Checking for lost saves from previous sessions...");
+      const recoveryResult = await this.saveManager.recoverLostSaves();
+      if (recoveryResult.success) {
+        if (recoveryResult.recoveredCount > 0) {
+          console.log(`Recovered ${recoveryResult.recoveredCount} lost save sessions`);
+        } else {
+          console.log("No lost saves found");
+        }
+      } else {
+        console.warn(`Lost save recovery failed: ${recoveryResult.error}`);
+      }
+    }
+
     // load loading page, but remove the ability to go back
     this.loadFile(path.join(__dirname, "renderer/loading.html"));
 

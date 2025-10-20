@@ -196,6 +196,16 @@ export abstract class Emulator {
   }
 
   /**
+   * Handle save preparation before launch
+   * Copies saves from the save directory to the emulator's expected location
+   * Override in subclasses for platform-specific save handling
+   */
+  public async handleSavePreparation(rom: Rom, saveDir: string, localSaveDir: string, saveManager: SaveManager): Promise<{ success: boolean; error?: string }> {
+    // Default implementation - no special save preparation needed
+    return { success: true };
+  }
+
+  /**
    * Get save comparison info for user choice
    * Override in subclasses that support save choice
    */
@@ -256,5 +266,39 @@ export abstract class Emulator {
   public async startInConfigMode(configFolder: string): Promise<{ success: boolean; error?: string; pid?: number }> {
     // Default implementation - just call configureEmulatorInConfigMode
     return this.configureEmulatorInConfigMode();
+  }
+
+  /**
+   * Extract saves from session directory and copy to persistent storage
+   * Override in subclasses to provide platform-specific save extraction logic
+   * 
+   * @param sessionPath - Path to the session directory (e.g., rom_X_session/)
+   * @param persistentSaveDir - Destination path for persistent saves
+   * @returns Array of save files that were extracted
+   */
+  public async extractSavesFromSession(sessionPath: string, persistentSaveDir: string): Promise<string[]> {
+    // Default implementation - copy all files recursively, flattening structure
+    const extractedFiles: string[] = [];
+
+    const copyFilesRecursively = async (src: string, dest: string) => {
+      const entries = await fs.readdir(src, { withFileTypes: true });
+
+      for (const entry of entries) {
+        const srcPath = path.join(src, entry.name);
+
+        if (entry.isDirectory()) {
+          // Recursively process subdirectories
+          await copyFilesRecursively(srcPath, dest);
+        } else {
+          // Copy file directly to destination
+          const destPath = path.join(dest, entry.name);
+          await fs.copyFile(srcPath, destPath);
+          extractedFiles.push(entry.name);
+        }
+      }
+    };
+
+    await copyFilesRecursively(sessionPath, persistentSaveDir);
+    return extractedFiles;
   }
 }
