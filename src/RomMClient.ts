@@ -31,7 +31,7 @@ export class RommClient extends BrowserWindow {
         contextIsolation: true,
         preload: path.join(__dirname, "preload.js"),
       },
-      icon: path.join(__dirname, "../assets/icon.png"),
+      icon: path.join(__dirname, "./renderer/assets/imgs/icon.png"),
       show: false, // Don't show until ready
       ...options,
     };
