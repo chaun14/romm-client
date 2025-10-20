@@ -609,9 +609,13 @@ async function launchRom(rom) {
         // ROM has been downloaded and cached, update cache status immediately
         romCacheStatus.set(rom.id, true);
 
-        // Reset installed ROMs data so the "Installed" view gets updated
-        allInstalledRoms = [];
-        installedPlatforms = [];
+        // Reload installed ROMs data to include the newly downloaded ROM
+        preloadInstalledRomsData().then(() => {
+            // If user is currently on the installed ROMs view, update the display
+            if (document.getElementById('installed-view').classList.contains('active')) {
+                loadInstalledRoms();
+            }
+        });
 
         showNotification(`ROM downloaded: ${rom.name}`, 'success');
         document.getElementById('rom-modal').classList.remove('show');
@@ -859,9 +863,13 @@ async function selectSaveAndLaunch(saveChoice, romData, saveId = null) {
         // ROM has been downloaded and cached, update cache status immediately
         romCacheStatus.set(romData.rom.id, true);
 
-        // Reset installed ROMs data so the "Installed" view gets updated
-        allInstalledRoms = [];
-        installedPlatforms = [];
+        // Reload installed ROMs data to include the newly downloaded ROM
+        preloadInstalledRomsData().then(() => {
+            // If user is currently on the installed ROMs view, update the display
+            if (document.getElementById('installed-view').classList.contains('active')) {
+                loadInstalledRoms();
+            }
+        });
 
         // Refresh ROM list to update cache status (keep as backup)
         scheduleRomListRefresh();
@@ -941,6 +949,13 @@ async function preloadData() {
 
 async function preloadInstalledRomsData() {
     try {
+        // Always reload local ROMs to get the latest installed ROMs
+        const localRomsResult = await window.electronAPI.roms.fetchLocal();
+        if (localRomsResult) {
+            localRoms = localRomsResult;
+            console.log(`Reloaded ${localRoms.length} local ROMs`);
+        }
+
         if (!currentPlatforms || !localRoms) return;
 
         // Filter ROMs that are cached/installed (localRoms contains the installed ones)
@@ -1168,6 +1183,9 @@ async function displayInstalledRoms(roms) {
 
         return `
       <div class="installed-rom-card" data-rom-id="${rom.id}">
+        <button class="btn-delete delete-rom-btn" data-rom-id="${rom.id}" title="Remove ROM from filesystem">
+          🗑️
+        </button>
         <div class="installed-rom-header">
           <div class="installed-rom-cover">
             ${coverUrl ? `<img src="${coverUrl}" alt="${rom.name}" onerror="this.parentElement.innerHTML='🎮'">` : '🎮'}
@@ -1177,9 +1195,6 @@ async function displayInstalledRoms(roms) {
             <p>${rom.platform_name || rom.platform}</p>
             <p class="rom-size">${formatFileSize(rom.cacheSize)}</p>
           </div>
-          <button class="btn-delete delete-rom-btn" data-rom-id="${rom.id}" title="Remove ROM from filesystem">
-            🗑️
-          </button>
         </div>
         <div class="installed-rom-actions">
           <button class="btn-launch launch-rom-btn" data-rom-id="${rom.id}" title="Launch ROM">
@@ -1230,17 +1245,29 @@ async function deleteCachedRom(rom) {
         const result = await window.electronAPI.deleteCachedRom(rom);
         if (result.success) {
             showNotification(`ROM "${rom.name}" deleted successfully`, 'success');
-            // Clear ROM cache status and reset installed ROMs data
+
+            // Remove the ROM from the cached data instead of clearing everything
             romCacheStatus.delete(rom.id);
             romSaveStatus.delete(rom.id);
-            allInstalledRoms = [];
-            installedPlatforms = [];
-            loadInstalledRoms();
+
+            // Remove the ROM from allInstalledRoms array
+            allInstalledRoms = allInstalledRoms.filter(r => r.id !== rom.id);
+
+            // Recalculate installedPlatforms - only keep platforms that still have ROMs
+            const remainingPlatformIds = [...new Set(allInstalledRoms.map(r => r.platform_id))];
+            installedPlatforms = installedPlatforms.filter(p => remainingPlatformIds.includes(p.id));
+
+            // Update the UI with the filtered data
+            applyFilters();
+
         } else {
             showNotification(`Error deleting ROM: ${result.error}`, 'error');
+            // Don't clear cache if deletion failed - keep the ROM in the list
+            console.error('ROM deletion failed:', result.error);
         }
     } catch (error) {
         showNotification(`Error: ${error.message}`, 'error');
+        console.error('ROM deletion error:', error);
     }
 }
 
@@ -1508,6 +1535,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.electronEvents.onRomLaunched((data) => {
         hideDownloadProgressModal();
         showNotification(`ROM launched: ${data.romName} (PID: ${data.pid})`, 'success');
+
+        // ROM has been downloaded and cached, update cache status immediately
+        romCacheStatus.set(data.romId, true);
+
+        // Reload installed ROMs data to include the newly downloaded ROM
+        preloadInstalledRomsData().then(() => {
+            // If user is currently on the installed ROMs view, update the display
+            if (document.getElementById('installed-view').classList.contains('active')) {
+                loadInstalledRoms();
+            }
+        });
     });
     window.electronEvents.onRomLaunchFailed((data) => {
         hideDownloadProgressModal();

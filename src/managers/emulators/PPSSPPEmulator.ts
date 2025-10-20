@@ -598,7 +598,7 @@ export class PPSSPPEmulator extends Emulator {
     const extractedFiles: string[] = [];
 
     // PPSSPP saves are in memstick/PSP/SAVEDATA/
-    const ppssppSavePath = path.join(sessionPath, 'memstick', 'PSP', 'SAVEDATA');
+    const ppssppSavePath = path.join(sessionPath, "memstick", "PSP", "SAVEDATA");
 
     if (!fsSync.existsSync(ppssppSavePath)) {
       console.log(`[PPSSPP] No SAVEDATA directory found in session: ${ppssppSavePath}`);

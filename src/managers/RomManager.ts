@@ -48,19 +48,45 @@ export class RomManager {
     return this.roms.length;
   }
 
-  async deleteLocalRom(id: number): Promise<{ success: boolean }> {
+  async deleteLocalRom(id: number): Promise<{ success: boolean; error?: string }> {
     const localRom = this.getLocalRomById(id);
     if (localRom) {
       try {
-        await fs.promises.unlink(localRom.localPath);
-        console.log(`[ROM MANAGER] Deleted local ROM file: ${localRom.localPath}`);
-      } catch (error) {
-        console.error(`[ROM MANAGER] Failed to delete local ROM file: ${localRom.localPath}`, error);
+        // Check if the path is a directory (it should be for cached ROMs)
+        const stats = await fs.promises.stat(localRom.localPath);
+        if (stats.isDirectory()) {
+          // Use rmSync with force and recursive options for directories
+          fs.rmSync(localRom.localPath, { recursive: true, force: true });
+          console.log(`[ROM MANAGER] Deleted local ROM directory: ${localRom.localPath}`);
+        } else {
+          // If it's a file, use unlink
+          await fs.promises.unlink(localRom.localPath);
+          console.log(`[ROM MANAGER] Deleted local ROM file: ${localRom.localPath}`);
+        }
+
+        // Remove from local ROMs list
+        this.localRoms = this.localRoms.filter((rom) => rom.id !== id);
+        return { success: true };
+      } catch (error: any) {
+        console.error(`[ROM MANAGER] Failed to delete local ROM: ${localRom.localPath}`, error);
+
+        // Provide more specific error messages
+        let errorMessage = error.message;
+        if (error.code === "EPERM" || error.code === "EBUSY") {
+          errorMessage = "ROM is currently in use by the emulator. Please close the emulator first.";
+        } else if (error.code === "ENOENT") {
+          errorMessage = "ROM file or directory not found.";
+        } else if (error.code === "EACCES") {
+          errorMessage = "Permission denied. Please check file permissions.";
+        }
+
+        return {
+          success: false,
+          error: errorMessage,
+        };
       }
-      this.localRoms = this.localRoms.filter((rom) => rom.id !== id);
-      return { success: true };
     }
-    return { success: false };
+    return { success: false, error: "ROM not found in local cache" };
   }
 
   async loadLocalRoms(): Promise<number> {

@@ -784,6 +784,7 @@ body {
     flex-direction: column;
     gap: 1rem;
     transition: all 0.2s;
+    position: relative;
 }
 
 .installed-rom-card:hover {
@@ -843,8 +844,8 @@ body {
 
 .btn-delete {
     position: absolute;
-    top: 0.5rem;
-    right: 0.5rem;
+    top: 0.75rem;
+    right: 0.75rem;
     width: 32px;
     height: 32px;
     border-radius: 50%;
@@ -858,6 +859,7 @@ body {
     font-size: 1rem;
     transition: all 0.2s;
     padding: 0;
+    z-index: 10;
 }
 
 .btn-delete:hover {

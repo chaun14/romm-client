@@ -229,7 +229,7 @@ export class SaveManager {
 
       // Get all platform directories
       const platformDirs = await fsPromises.readdir(saveRootDir, { withFileTypes: true });
-      const platformFolders = platformDirs.filter(dir => dir.isDirectory()).map(dir => dir.name);
+      const platformFolders = platformDirs.filter((dir) => dir.isDirectory()).map((dir) => dir.name);
 
       for (const platform of platformFolders) {
         const platformPath = path.join(saveRootDir, platform);
@@ -240,9 +240,7 @@ export class SaveManager {
           const entries = await fsPromises.readdir(platformPath, { withFileTypes: true });
 
           // Find session directories (ending with _session)
-          const sessionDirs = entries.filter(entry =>
-            entry.isDirectory() && entry.name.endsWith('_session')
-          );
+          const sessionDirs = entries.filter((entry) => entry.isDirectory() && entry.name.endsWith("_session"));
 
           console.log(`[SAVE MANAGER] Found ${sessionDirs.length} session directories in ${platform}`);
 
@@ -295,13 +293,11 @@ export class SaveManager {
               console.log(`[SAVE MANAGER] Cleaned up session directory: ${sessionDir.name}`);
 
               recoveredCount++;
-
             } catch (sessionError: any) {
               console.error(`[SAVE MANAGER] Error processing session ${sessionDir.name}: ${sessionError.message}`);
               // Continue with other sessions
             }
           }
-
         } catch (platformError: any) {
           console.error(`[SAVE MANAGER] Error scanning platform ${platform}: ${platformError.message}`);
           // Continue with other platforms
@@ -311,15 +307,14 @@ export class SaveManager {
       console.log(`[SAVE MANAGER] Lost save recovery completed. Recovered ${recoveredCount} sessions.`);
       return {
         success: true,
-        recoveredCount
+        recoveredCount,
       };
-
     } catch (error: any) {
       console.error(`[SAVE MANAGER] Error during lost save recovery: ${error.message}`);
       return {
         success: false,
         recoveredCount: 0,
-        error: error.message
+        error: error.message,
       };
     }
   }

@@ -271,7 +271,7 @@ export abstract class Emulator {
   /**
    * Extract saves from session directory and copy to persistent storage
    * Override in subclasses to provide platform-specific save extraction logic
-   * 
+   *
    * @param sessionPath - Path to the session directory (e.g., rom_X_session/)
    * @param persistentSaveDir - Destination path for persistent saves
    * @returns Array of save files that were extracted
