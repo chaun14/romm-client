@@ -1,7 +1,6 @@
 import { app, ipcMain, BrowserWindow } from "electron";
 import path from "path";
 import { RommClient } from "../RomMClient";
-import { ProgressInfo, UpdateInfo } from "electron-updater";
 import { autoUpdater } from "electron-updater";
 import { RommApi } from "../api/RommApi";
 import { EmulatorManager } from "./EmulatorManager";
@@ -630,63 +629,6 @@ export class IPCManager {
     // Open RomM Web Interface
     ipcMain.handle("romm:open-web-interface", async (event, romId) => {
       return this.rommClient.createRommWebWindow(romId);
-    });
-
-    // Auto-updater configuration
-    autoUpdater.autoDownload = false; // Don't auto-download, wait for user confirmation
-    autoUpdater.autoInstallOnAppQuit = true;
-
-    // Check for updates on app ready (skip in dev mode)
-    app.whenReady().then(() => {
-      if (!process.argv.includes("--dev")) {
-        setTimeout(() => {
-          autoUpdater.checkForUpdates();
-        }, 3000); // Check 3 seconds after startup
-      }
-    });
-
-    // Auto-updater events
-    autoUpdater.on("update-available", (info: UpdateInfo) => {
-      console.log("Update available:", info.version);
-      if (this.rommClient) {
-        this.rommClient.webContents.send("update-available", {
-          version: info.version,
-          releaseDate: info.releaseDate,
-          releaseNotes: info.releaseNotes,
-        });
-      }
-    });
-
-    autoUpdater.on("update-not-available", (info: UpdateInfo) => {
-      console.log("No updates available");
-    });
-
-    autoUpdater.on("download-progress", (progressObj: ProgressInfo) => {
-      if (this.rommClient) {
-        this.rommClient.webContents.send("update-download-progress", {
-          percent: progressObj.percent,
-          transferred: progressObj.transferred,
-          total: progressObj.total,
-        });
-      }
-    });
-
-    autoUpdater.on("update-downloaded", (info: UpdateInfo) => {
-      console.log("Update downloaded:", info.version);
-      if (this.rommClient) {
-        this.rommClient.webContents.send("update-downloaded", {
-          version: info.version,
-        });
-      }
-    });
-
-    autoUpdater.on("error", (error: Error) => {
-      console.error("Update error:", error);
-      if (this.rommClient) {
-        this.rommClient.webContents.send("update-error", {
-          message: error.message,
-        });
-      }
     });
 
     // IPC handlers for updates

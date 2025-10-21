@@ -1,4 +1,4 @@
-import { BrowserWindow } from "electron";
+import { app, BrowserWindow } from "electron";
 import fs from "fs";
 import path from "path";
 
@@ -8,6 +8,8 @@ import { IPCManager } from "./managers/IPCManager";
 import { EmulatorManager } from "./managers/EmulatorManager";
 import { SaveManager } from "./managers/SaveManager";
 import { RomManager } from "./managers/RomManager";
+import { autoUpdater } from "electron-updater";
+import { UpdateInfo, ProgressInfo } from "electron-updater";
 
 export class RommClient extends BrowserWindow {
   public settings: AppSettings;
@@ -38,7 +40,7 @@ export class RommClient extends BrowserWindow {
 
     super(defaultOptions);
 
-    console.log("Initializing RommClient");
+    console.log("Initializing RommClient version " + app.getVersion());
 
     this.appSettingsManager = new AppSettingsManager();
 
@@ -54,6 +56,8 @@ export class RommClient extends BrowserWindow {
     this.romManager = new RomManager(this);
 
     this.settings = this.appSettingsManager.getSettings();
+
+    this.initAutoUpdater();
 
     this.initWindow();
   }
@@ -160,6 +164,14 @@ export class RommClient extends BrowserWindow {
 
         await this.sleep(1000);
         // User is authenticated, proceed to main app
+
+        if (!process.argv.includes("--dev")) {
+          setTimeout(() => {
+            console.log("Checking for updates now...");
+            autoUpdater.checkForUpdates();
+          }, 1000); // Check 1 second after main page is loaded
+        }
+
         this.loadFile(path.join(__dirname, "renderer/index.html"));
       } else {
         this.webContents.send("init-status", { step: "auth", status: "error", message: "Login failed" });
@@ -181,6 +193,48 @@ export class RommClient extends BrowserWindow {
     // Handle window closed
     this.on("closed", () => {
       // Cleanup if needed
+    });
+  }
+
+  private initAutoUpdater() {
+    // Auto-updater configuration
+    autoUpdater.autoDownload = false; // Don't auto-download, wait for user confirmation
+    autoUpdater.autoInstallOnAppQuit = true;
+
+    // Auto-updater events
+    autoUpdater.on("update-available", (info: UpdateInfo) => {
+      console.log("[AUTO-UPDATER] Update available:", info.version);
+      this.webContents.send("update-available", {
+        version: info.version,
+        releaseDate: info.releaseDate,
+        releaseNotes: info.releaseNotes,
+      });
+    });
+
+    autoUpdater.on("update-not-available", (info: UpdateInfo) => {
+      console.log("[AUTO-UPDATER] No updates available");
+    });
+
+    autoUpdater.on("download-progress", (progressObj: ProgressInfo) => {
+      this.webContents.send("update-download-progress", {
+        percent: progressObj.percent,
+        transferred: progressObj.transferred,
+        total: progressObj.total,
+      });
+    });
+
+    autoUpdater.on("update-downloaded", (info: UpdateInfo) => {
+      console.log("[AUTO-UPDATER] Update downloaded:", info.version);
+      this.webContents.send("update-downloaded", {
+        version: info.version,
+      });
+    });
+
+    autoUpdater.on("error", (error: Error) => {
+      console.error("[AUTO-UPDATER] Update error:", error.message);
+      this.webContents.send("update-error", {
+        message: error.message,
+      });
     });
   }
 

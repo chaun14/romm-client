@@ -1704,7 +1704,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 function setupUpdateListeners() {
     // Update available
     window.electronEvents.onUpdateAvailable((info) => {
-        console.log('Update available:', info.version);
+        console.log('[UPDATE] Update available:', info.version);
         updateAvailable = true;
         updateInfo = info;
         showUpdateButton();
@@ -1712,13 +1712,12 @@ function setupUpdateListeners() {
 
     // Download progress
     window.electronEvents.onUpdateDownloadProgress((progress) => {
-        console.log('Download progress:', progress.percent);
         updateDownloadProgress(progress.percent);
     });
 
     // Update downloaded
     window.electronEvents.onUpdateDownloaded((info) => {
-        console.log('Update downloaded:', info.version);
+        console.log('[UPDATE] Update downloaded:', info.version);
         updateDownloading = false;
         updateReady = true;
         showUpdateReadyButton();
@@ -1726,7 +1725,7 @@ function setupUpdateListeners() {
 
     // Update error
     window.electronEvents.onUpdateError((error) => {
-        console.error('Update error:', error.message);
+        console.error('[UPDATE] Update error:', error.message);
         showNotification(`Update error: ${error.message}`, 'error');
         hideUpdateButton();
     });
