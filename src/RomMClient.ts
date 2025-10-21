@@ -99,6 +99,10 @@ export class RommClient extends BrowserWindow {
 
         if (!heartbeat) {
           console.error("RomM API is not responding");
+
+          await this.webContents.send("init-status", { step: "url", status: "error", message: "RomM is not responding" });
+          await this.sleep(1000);
+
           return this.loadFile(path.join(__dirname, "renderer/login.html"));
         } else {
           console.log("RomM API is responding and running version " + heartbeat.data?.SYSTEM.VERSION);
