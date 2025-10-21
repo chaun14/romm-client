@@ -122,6 +122,7 @@ export class RommApi {
    */
   public async loginWithSession(sessionToken: string, csrfToken?: string): Promise<ApiResponse<boolean>> {
     try {
+      console.log("Attempting session login with token");
       // Reconstruct the full cookie from the token
       this.sessionToken = `romm_session=${sessionToken}`;
       if (csrfToken) {
@@ -143,6 +144,30 @@ export class RommApi {
       }
     } catch (error: any) {
       console.log("Session login failed - session expired or invalid." + error.message);
+      this.clearAuth();
+      return this.handleApiError(error);
+    }
+  }
+
+  setOAuthToken(token: string): void {
+    // For OAuth, the token is actually the session token
+    this.sessionToken = `romm_session=${token}`;
+    this.initClient();
+  }
+
+  async testAuthentication(): Promise<ApiResponse<boolean>> {
+    try {
+      // Test authentication by making an authenticated request
+      const response = await this.client!.get("/api/users/me");
+
+      if (response.status === 200 && response.data) {
+        console.log("OAuth authentication successful - session is valid.");
+        return { success: true, data: true };
+      } else {
+        throw new Error("Authentication test failed");
+      }
+    } catch (error: any) {
+      console.log("OAuth authentication failed - token invalid or expired.");
       this.clearAuth();
       return this.handleApiError(error);
     }

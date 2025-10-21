@@ -1,6 +1,6 @@
 import { app, ipcMain, BrowserWindow } from "electron";
 import { RommClient } from "../RomMClient";
-import { ProgressInfo, UpdateInfo } from "electron-updater/out/types";
+import { ProgressInfo, UpdateInfo } from "electron-updater";
 import { autoUpdater } from "electron-updater";
 import { RommApi } from "../api/RommApi";
 import { EmulatorManager } from "./EmulatorManager";
@@ -74,7 +74,6 @@ export class IPCManager {
 
       // Ensure RommApi exists
       if (!this.rommClient.rommApi && this.rommClient.settings.baseUrl) {
-        const { RommApi } = await import("../api/RommApi");
         this.rommClient.rommApi = new RommApi(this.rommClient.settings.baseUrl);
       }
 
@@ -133,11 +132,6 @@ export class IPCManager {
       else throw new Error("RomM API is not initialized");
     });
 
-    ipcMain.handle("config:start-oauth", async (event, url) => {
-      // OAuth not implemented yet
-      return { success: false, error: "OAuth authentication is not yet implemented" };
-    });
-
     ipcMain.handle("config:has-saved-credentials", async () => {
       return !!(this.rommClient.settings.username && this.rommClient.settings.password);
     });
@@ -157,6 +151,111 @@ export class IPCManager {
         return { success: false, error: "RomM API not initialized" };
       }
       return this.rommClient.rommApi.loginWithSession(this.rommClient.settings.sessionToken!, this.rommClient.settings.csrfToken || undefined);
+    });
+
+    ipcMain.handle("config:start-oauth", async (event, serverUrl) => {
+      return new Promise(async (resolve) => {
+        const loginUrl = `${serverUrl}/login`;
+        console.log("[IPC] Starting OAuth flow with URL:", loginUrl);
+
+        // Create OAuth window
+        const oauthWindow = new BrowserWindow({
+          width: 600,
+          height: 700,
+          webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+          },
+          show: true,
+          title: "RomM OAuth Login",
+          modal: false,
+          parent: this.rommClient as any, // Make it a child window
+        });
+
+        // Load the login page
+        oauthWindow.loadURL(loginUrl);
+
+        let completed = false;
+
+        // Monitor navigation and check for session cookie
+        const checkCookies = async () => {
+          if (completed) return;
+
+          try {
+            // Wait a bit for cookies to be set
+            await new Promise((resolve) => setTimeout(resolve, 500));
+
+            const currentUrl = oauthWindow.webContents.getURL();
+            console.log("[IPC] OAuth window navigated to:", currentUrl);
+            if (currentUrl && currentUrl.startsWith(serverUrl) && !currentUrl.includes("/login")) {
+              // Check if we have the session cookie
+              const cookies = await oauthWindow.webContents.session.cookies.get({ name: "romm_session" });
+
+              if (cookies && cookies.length > 0 && cookies[0].value) {
+                const token = cookies[0].value;
+                console.log("[IPC] OAuth session token found in cookies, processing authentication");
+
+                completed = true;
+                oauthWindow.close();
+
+                try {
+                  // Ensure RommApi exists
+                  if (!this.rommClient.rommApi && this.rommClient.settings.baseUrl) {
+                    this.rommClient.rommApi = new RommApi(this.rommClient.settings.baseUrl);
+                  }
+
+                  if (!this.rommClient.rommApi) {
+                    resolve({ success: false, error: "RomM API not initialized - set URL first" });
+                    return;
+                  }
+
+                  // Set the token in RommApi
+                  this.rommClient.rommApi.setOAuthToken(token);
+
+                  // Test authentication
+                  const authResult = await this.rommClient.rommApi.testAuthentication();
+
+                  if (authResult.success) {
+                    // Save session tokens
+                    this.rommClient.appSettingsManager.setSetting("sessionToken", this.rommClient.rommApi.sessionTokenValue);
+                    this.rommClient.appSettingsManager.setSetting("csrfToken", this.rommClient.rommApi.csrfTokenValue);
+                    await this.rommClient.appSettingsManager.saveSettings();
+
+                    // Update RommClient's settings reference
+                    this.rommClient.settings = this.rommClient.appSettingsManager.getSettings();
+
+                    console.log("[IPC] OAuth authentication successful");
+                    resolve({ success: true });
+                  } else {
+                    console.log("[IPC] OAuth authentication failed");
+                    resolve({ success: false, error: authResult.error || "Authentication failed" });
+                  }
+                } catch (error: any) {
+                  console.error("[IPC] OAuth processing error:", error);
+                  resolve({ success: false, error: error.message || "Authentication processing failed" });
+                }
+
+                return;
+              }
+            }
+          } catch (error) {
+            // Cookie access might fail during cross-origin navigation
+            // This is normal and expected
+          }
+        };
+
+        // Handle navigation events to check for token
+        oauthWindow.webContents.on("did-navigate", checkCookies);
+        oauthWindow.webContents.on("did-navigate-in-page", checkCookies);
+
+        // Handle window closed without completing auth
+        oauthWindow.on("closed", () => {
+          if (!completed) {
+            completed = true;
+            resolve({ success: false, error: "OAuth window was closed without completing authentication" });
+          }
+        });
+      });
     });
   }
 

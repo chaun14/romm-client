@@ -289,22 +289,35 @@
             <div id="auth-step" class="form-step">
                 <h3 style="text-align: center; margin-bottom: 1rem; color: var(--text-primary);">Authentication</h3>
                 <p style="text-align: center; margin-bottom: 1.5rem; color: var(--text-secondary); font-size: 0.9rem;">
-                    Enter your credentials to connect.
+                    Choose your authentication method.
                 </p>
 
-                <div class="form-group">
-                    <label for="username">Username</label>
-                    <input type="text" id="username" placeholder="admin" required>
+                <!-- OAuth Login -->
+                <div class="oauth-section" style="margin-bottom: 2rem;">
+                    <button type="button" id="oauth-login-btn" class="btn btn-primary" style="width: 100%; margin-bottom: 1rem;">
+                        🔐 Login with OAuth
+                    </button>
+                    <p style="text-align: center; color: var(--text-secondary); font-size: 0.8rem; margin-bottom: 1rem;">
+                        or use traditional login
+                    </p>
                 </div>
 
-                <div class="form-group">
-                    <label for="password">Password</label>
-                    <input type="password" id="password" placeholder="••••••••" required>
-                </div>
+                <!-- Traditional Login -->
+                <div class="traditional-login">
+                    <div class="form-group">
+                        <label for="username">Username</label>
+                        <input type="text" id="username" placeholder="admin" required>
+                    </div>
 
-                <div class="form-actions">
-                    <button type="button" id="back-to-url-btn" class="btn btn-secondary">Back</button>
-                    <button type="button" id="login-btn" class="btn btn-primary">Connect</button>
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <input type="password" id="password" placeholder="••••••••" required>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" id="back-to-url-btn" class="btn btn-secondary">Back</button>
+                        <button type="button" id="login-btn" class="btn btn-primary">Connect</button>
+                    </div>
                 </div>
 
                 <div id="auth-result" class="result-message"></div>
@@ -342,6 +355,8 @@
         let connectionTested = false;
         let connectionSuccessful = false;
         let savedUrl = '';
+        let oauthPopup = null;
+        let serverConfig = null;
 
         async function init() {
             const versionResults = await window.electronAPI.config.getVersion();
@@ -361,28 +376,18 @@
             try {
                 const baseUrl = await window.electronAPI.config.getBaseUrl();
                 if (baseUrl) {
-                    document.getElementById('romm-url').value = baseUrl;
-                    serverUrl = baseUrl;
-                    savedUrl = baseUrl;
-                    // Don't auto-enable Next button - require connection test even for saved URLs
-                    document.getElementById('next-to-auth-btn').disabled = true;
+                    // Clean the URL by removing trailing slash
+                    const cleanUrl = baseUrl.replace(/\/$/, '');
+                    document.getElementById('romm-url').value = cleanUrl;
+                    serverUrl = cleanUrl;
+                    savedUrl = cleanUrl;
+                    // For saved URLs, we should test connection automatically
+                    await testConnection();
                 }
-
-                // First try session-based authentication if available
-                const hasSession = await window.electronAPI.config.hasSavedSession();
-                if (hasSession) {
-                    showMessage('auth-result', 'Authenticating with saved session...', 'info');
-                    await attemptAutoLoginWithSession();
-                } else {
-                    // Fall back to saved credentials
-                    const hasCredentials = await window.electronAPI.config.hasSavedCredentials();
-                    if (hasCredentials) {
-                        showMessage('auth-result', 'Authenticating with saved credentials...', 'info');
-                        await attemptAutoLogin();
-                    }
-                }
+                // No auto-login logic here - backend handles authentication at startup
             } catch (error) {
                 console.error('Error loading saved settings:', error);
+                // Stay on URL step
             }
         }
 
@@ -390,11 +395,12 @@
             // URL step
             document.getElementById('romm-url').addEventListener('input', validateUrl);
             document.getElementById('test-connection-btn').addEventListener('click', testConnection);
-            document.getElementById('next-to-auth-btn').addEventListener('click', () => switchStep('auth'));
+            document.getElementById('next-to-auth-btn').addEventListener('click', handleNextFromUrl);
 
             // Auth step
             document.getElementById('back-to-url-btn').addEventListener('click', () => switchStep('url'));
             document.getElementById('login-btn').addEventListener('click', handleLogin);
+            document.getElementById('oauth-login-btn').addEventListener('click', handleOAuthLogin);
 
             // Consent modal
             document.getElementById('consent-session-only-btn').addEventListener('click', () => handleConsent(false));
@@ -411,7 +417,8 @@
 
             try {
                 new URL(url);
-                serverUrl = url;
+                // Clean the URL by removing trailing slash
+                serverUrl = url.replace(/\/$/, '');
                 // Reset connection test status for any URL change
                 connectionTested = false;
                 connectionSuccessful = false;
@@ -435,16 +442,24 @@
             testBtn.disabled = true;
 
             try {
-                await window.electronAPI.config.setRommUrl(serverUrl);
+                // Clean the URL by removing trailing slash
+                const cleanUrl = serverUrl.replace(/\/$/, '');
+                await window.electronAPI.config.setRommUrl(cleanUrl);
                 const result = await window.electronAPI.config.testConnection();
+
+                console.log('Connection test result:', result);
 
                 connectionTested = true;
                 if (result.success) {
                     connectionSuccessful = true;
+                    serverConfig = result.data; // Store server configuration
                     showMessage('url-result', '✅ Connection successful!', 'success');
                     document.getElementById('next-to-auth-btn').disabled = false;
+                    // Update auth display in case we're already on auth step
+                    updateAuthStepDisplay();
                 } else {
                     connectionSuccessful = false;
+                    serverConfig = null;
                     showMessage('url-result', `❌ ${result.error || 'Connection failed'}`, 'error');
                     document.getElementById('next-to-auth-btn').disabled = true;
                 }
@@ -499,62 +514,24 @@
         }
 
         async function attemptAutoLogin() {
-            try {
-                const result = await window.electronAPI.config.authenticateWithSavedCredentials();
-
-                if (result.success) {
-                    showMessage('auth-result', '✅ Auto-login successful! Starting application...', 'success');
-                    setTimeout(() => {
-                        window.electronAPI.loginComplete();
-                    }, 1000);
-                } else {
-                    showMessage('auth-result', 'Saved credentials invalid. Please login manually.', 'error');
-                    switchStep('auth');
-                }
-            } catch (error) {
-                console.error('Auto-login failed:', error);
-                switchStep('auth');
-            }
+            // This function is no longer used - auto-login is handled by backend at startup
+            throw new Error('Auto-login should be handled by backend');
         }
 
         async function attemptAutoLoginWithSession() {
-            try {
-                const result = await window.electronAPI.config.authenticateWithSavedSession();
-
-                if (result.success) {
-                    showMessage('auth-result', '✅ Session login successful! Starting application...', 'success');
-                    setTimeout(() => {
-                        window.electronAPI.loginComplete();
-                    }, 1000);
-                } else {
-                    showMessage('auth-result', 'Session expired. Trying saved credentials...', 'warning');
-                    // Fall back to saved credentials
-                    const hasCredentials = await window.electronAPI.config.hasSavedCredentials();
-                    if (hasCredentials) {
-                        await attemptAutoLogin();
-                    } else {
-                        showMessage('auth-result', 'No valid authentication found. Please login manually.', 'error');
-                        switchStep('auth');
-                    }
-                }
-            } catch (error) {
-                console.error('Session auto-login failed:', error);
-                // Fall back to saved credentials
-                const hasCredentials = await window.electronAPI.config.hasSavedCredentials();
-                if (hasCredentials) {
-                    showMessage('auth-result', 'Trying saved credentials...', 'info');
-                    await attemptAutoLogin();
-                } else {
-                    showMessage('auth-result', 'No valid authentication found. Please login manually.', 'error');
-                    switchStep('auth');
-                }
-            }
+            // This function is no longer used - auto-login is handled by backend at startup
+            throw new Error('Auto-login should be handled by backend');
         }
 
         function switchStep(step) {
             document.getElementById(`${currentStep}-step`).classList.remove('active');
             document.getElementById(`${step}-step`).classList.add('active');
             currentStep = step;
+
+            // Update auth step display when switching to auth
+            if (step === 'auth') {
+                updateAuthStepDisplay();
+            }
 
             // Clear messages when switching
             clearMessages();
@@ -611,9 +588,84 @@
             });
         }
 
-        function handleConsent(saveCredentials) {
-            consentChoice = saveCredentials;
-            hideConsentModal();
+        function handleOAuthLogin() {
+            // Clean the URL by removing trailing slash
+            const cleanUrl = serverUrl.replace(/\/$/, '');
+
+            if (!cleanUrl) {
+                showMessage('auth-result', 'Server URL not configured', 'error');
+                return;
+            }
+
+            showMessage('auth-result', 'Starting OAuth authentication...', 'info');
+
+            // Ask main process to start OAuth flow
+            window.electronAPI.config.startOAuth(cleanUrl).then(result => {
+                if (result.success) {
+                    showMessage('auth-result', '✅ OAuth authentication successful! Starting application...', 'success');
+
+                    // Notify main process that login is complete
+                    setTimeout(() => {
+                        window.electronAPI.loginComplete();
+                    }, 1000);
+                } else {
+                    showMessage('auth-result', `❌ ${result.error || 'OAuth authentication failed'}`, 'error');
+                }
+            }).catch(error => {
+                showMessage('auth-result', `❌ ${error.message || 'OAuth authentication failed'}`, 'error');
+            });
+        }
+
+
+
+        function updateAuthStepDisplay() {
+            const oauthSection = document.querySelector('.oauth-section');
+            const traditionalLogin = document.querySelector('.traditional-login');
+            const oauthBtn = document.getElementById('oauth-login-btn');
+
+            if (!serverConfig) {
+                // No server config available, show both options but disable OAuth
+                oauthSection.style.display = 'block';
+                traditionalLogin.style.display = 'block';
+                oauthBtn.disabled = true;
+                oauthBtn.style.opacity = '0.5';
+                return;
+            }
+
+            const disableUserPassLogin = serverConfig.FRONTEND?.DISABLE_USERPASS_LOGIN;
+            const oidcEnabled = serverConfig.OIDC?.ENABLED;
+
+            if (disableUserPassLogin && oidcEnabled) {
+                // User/pass login is disabled and OIDC is enabled - only show OAuth
+                oauthSection.style.display = 'block';
+                traditionalLogin.style.display = 'none';
+                oauthBtn.disabled = false;
+                oauthBtn.style.opacity = '1';
+            } else if (oidcEnabled) {
+                // Both OAuth and traditional login available
+                oauthSection.style.display = 'block';
+                traditionalLogin.style.display = 'block';
+                oauthBtn.disabled = false;
+                oauthBtn.style.opacity = '1';
+            } else {
+                // Only traditional login available
+                oauthSection.style.display = 'none';
+                traditionalLogin.style.display = 'block';
+            }
+        }
+
+        function handleNextFromUrl() {
+            // Clean the URL by removing trailing slash before proceeding
+            serverUrl = serverUrl.replace(/\/$/, '');
+
+            // Check if OIDC is enabled and user/pass login is disabled
+            if (serverConfig && serverConfig.OIDC?.ENABLED && serverConfig.FRONTEND?.DISABLE_USERPASS_LOGIN) {
+                // OIDC is enabled and traditional login is disabled - go directly to OAuth
+                handleOAuthLogin();
+            } else {
+                // Traditional flow - go to auth step
+                switchStep('auth');
+            }
         }
 
         init();

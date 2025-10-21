@@ -110,8 +110,8 @@ export class RommClient extends BrowserWindow {
         }
         await this.sleep(1000);
 
-        // we can proceed with login
-        if (this.settings.username && this.settings.password) {
+        // if the hearbeat returns that oidc is enabled, we will skip user/pass login
+        if (this.settings.username && this.settings.password && !heartbeat.data?.OIDC.ENABLED) {
           console.log("Logging in with saved credentials");
           let res = await this.rommApi.loginWithCredentials(this.settings.username, this.settings.password);
           isAuthenticated = res.success;

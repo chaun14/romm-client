@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
         hasSavedCredentials: () => ipcRenderer.invoke('config:has-saved-credentials'),
         authenticateWithSavedCredentials: () => ipcRenderer.invoke('config:authenticate-with-saved-credentials'),
         hasSavedSession: () => ipcRenderer.invoke('config:has-saved-session'),
+        authenticateWithSavedSession: () => ipcRenderer.invoke('config:authenticate-with-saved-session'),
         getVersion: () => ipcRenderer.invoke('config:get-version')
     },
 
