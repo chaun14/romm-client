@@ -1,4 +1,5 @@
 import { app, ipcMain, BrowserWindow } from "electron";
+import path from "path";
 import { RommClient } from "../RomMClient";
 import { ProgressInfo, UpdateInfo } from "electron-updater";
 import { autoUpdater } from "electron-updater";
@@ -114,8 +115,26 @@ export class IPCManager {
     });
 
     ipcMain.handle("config:logout", async () => {
-      if (this.rommClient.rommApi) return this.rommClient.rommApi.logout();
-      else throw new Error("RomM API is not initialized");
+      // Clear authentication data from settings
+      this.rommClient.appSettingsManager.setSetting("sessionToken", null);
+      this.rommClient.appSettingsManager.setSetting("csrfToken", null);
+      this.rommClient.appSettingsManager.setSetting("username", null);
+      this.rommClient.appSettingsManager.setSetting("password", null);
+      await this.rommClient.appSettingsManager.saveSettings();
+
+      // Clear authentication in RommApi
+      if (this.rommClient.rommApi) {
+        this.rommClient.rommApi.clearAuth();
+      }
+
+      // Update RommClient's settings reference
+      this.rommClient.settings = this.rommClient.appSettingsManager.getSettings();
+
+      // Reset RommClient to initial state instead of just loading login page
+      // This ensures proper cleanup and initialization like on app startup
+      await this.rommClient.initWindow();
+
+      return { success: true };
     });
 
     ipcMain.handle("config:get-current-user", async () => {

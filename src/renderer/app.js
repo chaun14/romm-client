@@ -151,28 +151,18 @@ document.getElementById('save-settings-btn').addEventListener('click', async () 
 
 // Settings logout button
 document.getElementById('settings-logout-btn').addEventListener('click', async () => {
-    const result = await window.electronAPI.config.logout();
-
-    if (result.success) {
-        showNotification('Logged out successfully', 'success');
-        currentUser = null;
-        updateConnectionStatus(false);
-
-        // Clear data
-        currentRoms = [];
-        currentPlatforms = [];
-        displayRoms([]);
-        displayPlatforms([]);
-
-        // Reset to server URL step
-        document.getElementById('connected-state').classList.remove('active');
-        document.getElementById('server-url-step').classList.add('active');
-
-        // Reset Next button to disabled when logging out
-        document.getElementById('next-to-auth-btn').disabled = true;
-        document.getElementById('next-to-auth-btn').classList.add('btn-disabled');
-    } else {
-        showNotification(`Logout error: ${result.error}`, 'error');
+    try {
+        const result = await window.electronAPI.config.logout();
+        if (result.success) {
+            // Logout successful - the IPC handler will reload the login page
+            console.log('Logout successful');
+        } else {
+            console.error('Logout failed:', result.error);
+            showResult('Logout failed', 'error');
+        }
+    } catch (error) {
+        console.error('Logout error:', error);
+        showResult('Logout failed', 'error');
     }
 });
 
@@ -1970,4 +1960,21 @@ function updateSettingsViewState() {
         document.getElementById('connected-state').classList.remove('active');
     }
 }
+
+// Logout functionality
+document.getElementById('settings-logout-btn').addEventListener('click', async () => {
+    try {
+        const result = await window.electronAPI.config.logout();
+        if (result.success) {
+            // Logout successful - the IPC handler will reload the login page
+            console.log('Logout successful');
+        } else {
+            console.error('Logout failed:', result.error);
+            showResult('Logout failed', 'error');
+        }
+    } catch (error) {
+        console.error('Logout error:', error);
+        showResult('Logout failed', 'error');
+    }
+});
 

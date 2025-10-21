@@ -58,7 +58,7 @@ export class RommClient extends BrowserWindow {
     this.initWindow();
   }
 
-  private async initWindow() {
+  public async initWindow() {
     await this.appSettingsManager.loadSettings();
     this.settings = this.appSettingsManager.getSettings();
 
