@@ -277,9 +277,17 @@ export class RommClient extends BrowserWindow {
   }
 
   async setupFolders() {
+    // for better multi instance management, we use separate folders per instance by adding a suffix based on the domain from the baseUrl
+    let instanceSuffix = "";
+    if (this.settings.baseUrl) {
+      const baseUrl = this.settings.baseUrl;
+      const urlObj = new URL(baseUrl);
+      instanceSuffix = `_${urlObj.hostname}`;
+    }
+
     // Create cache directory for ROMs (use emulator name for better organization)
     let romPath = process.env.APPDATA || process.env.HOME || __dirname;
-    const romDir = path.join(romPath, "romm-client", "roms");
+    const romDir = path.join(romPath, "romm-client", "roms" + instanceSuffix);
     // check if directory exists
     if (!fs.existsSync(romDir)) {
       await fs.mkdirSync(romDir, { recursive: true });
@@ -287,14 +295,14 @@ export class RommClient extends BrowserWindow {
     this.romsFolder = romDir;
 
     // same for the saves folder
-    const savesDir = path.join(romPath, "romm-client", "saves");
+    const savesDir = path.join(romPath, "romm-client", "saves" + instanceSuffix);
     if (!fs.existsSync(savesDir)) {
       await fs.mkdirSync(savesDir, { recursive: true });
     }
     this.savesFolder = savesDir;
 
     // same for the emulator configs folder
-    const emulatorConfigsDir = path.join(romPath, "romm-client", "emulatorsConfig");
+    const emulatorConfigsDir = path.join(romPath, "romm-client", "emulatorsConfig" + instanceSuffix);
     if (!fs.existsSync(emulatorConfigsDir)) {
       await fs.mkdirSync(emulatorConfigsDir, { recursive: true });
     }
