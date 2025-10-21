@@ -102,7 +102,21 @@ export class RomManager {
         for (const romDirent of romDirs) {
           if (romDirent.isDirectory() && romDirent.name.startsWith("rom_")) {
             const romId = romDirent.name.replace("rom_", "");
-            const rom = this.roms.find((r) => r.id.toString() === romId);
+            let rom = this.roms.find((r) => r.id.toString() === romId);
+
+            // if we don't have a matching rom in the cache, we try to fetch the rom by hand
+            if (!rom) {
+              console.log(`[ROM MANAGER] ROM not found in cache, fetching by ID: ${romId}`);
+              let remoteRom = await this.rommClient.rommApi?.fetchRomById(parseInt(romId));
+              if (remoteRom && remoteRom.success && remoteRom.data) {
+                rom = remoteRom.data;
+              }
+
+              if (rom) {
+                this.roms.push(rom);
+              }
+            }
+
             if (rom) {
               const romPath = path.join(platformPath, romDirent.name);
               const files = await fs.promises.readdir(romPath);

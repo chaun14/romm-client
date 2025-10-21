@@ -302,6 +302,10 @@ export class RommApi {
     return { success: true, data: allRoms };
   }
 
+  fetchRomById(romId: number): Promise<ApiResponse<RomDetails>> {
+    return this.apiCall("get", `/api/roms/${romId}`);
+  }
+
   async searchRoms(query: string, options: RomOptions = {}): Promise<ApiResponse<RomsResponse>> {
     return this.fetchRoms({ search: query, ...options });
   }

@@ -131,10 +131,21 @@ export class RommClient extends BrowserWindow {
 
         // fetch all the roms from remote
         if (this.romManager) {
-          let romCount = await this.romManager.loadRemoteRoms();
-          console.log(`Fetched ${romCount} ROMs from remote`);
+          // loading hundreds of thousands of roms might take a while
+          // so we're gonna cache them only if there is a reasonable amount
+          if (!this.rommApi) return;
+          let stats = await this.rommApi.fetchStats();
 
-          this.webContents.send("init-status", { step: "cache", status: "success", message: `Fetched ${romCount} ROMs successfully` });
+          let remoteRomCount = stats.success ? stats.data!.ROMS : 0;
+
+          if (remoteRomCount < 1000) {
+            let romCount = await this.romManager.loadRemoteRoms();
+            console.log(`Fetched ${romCount} ROMs from remote`);
+
+            this.webContents.send("init-status", { step: "cache", status: "success", message: `Fetched ${romCount} ROMs successfully` });
+          } else {
+            this.webContents.send("init-status", { step: "cache", status: "warning", message: `Too many roms for caching: (${remoteRomCount})` });
+          }
 
           await this.sleep(1000);
 
