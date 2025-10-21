@@ -518,6 +518,30 @@ body {
     filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.3));
 }
 
+.platform-image-container {
+    position: relative;
+    width: 100px;
+    height: 100px;
+}
+
+.platform-image {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.3));
+}
+
+.platform-image-svg {
+    display: block;
+}
+
+.platform-image-ico {
+    display: none;
+}
+
 .platform-card .platform-emoji {
     font-size: 4rem;
     line-height: 1;
@@ -575,6 +599,34 @@ body {
     background-color: var(--bg-darker);
     color: var(--text-primary);
     font-size: 0.875rem;
+}
+
+.emulator-config-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.emulator-config-row input {
+    flex: 1;
+}
+
+.btn-config-emulator {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.375rem;
+    background-color: var(--bg-darker);
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.btn-config-emulator:hover {
+    background-color: var(--accent-color);
+    color: var(--text-primary);
+    border-color: var(--accent-color);
 }
 
 /* Settings Form */
@@ -756,6 +808,7 @@ body {
     flex-direction: column;
     gap: 1rem;
     transition: all 0.2s;
+    position: relative;
 }
 
 .installed-rom-card:hover {
@@ -815,8 +868,8 @@ body {
 
 .btn-delete {
     position: absolute;
-    top: 0.5rem;
-    right: 0.5rem;
+    top: 0.75rem;
+    right: 0.75rem;
     width: 32px;
     height: 32px;
     border-radius: 50%;
@@ -830,6 +883,7 @@ body {
     font-size: 1rem;
     transition: all 0.2s;
     padding: 0;
+    z-index: 10;
 }
 
 .btn-delete:hover {

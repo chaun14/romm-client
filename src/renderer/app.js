@@ -1,9 +1,11 @@
-// État de l'application
+// Application state
 let currentRoms = [];
 let currentPlatforms = [];
 let selectedRom = null;
 let currentUser = null;
 let currentPlatformId = null;
+let remoteRoms = [];
+let localRoms = [];
 
 // Cache status for ROMs
 let romCacheStatus = new Map();
@@ -149,28 +151,18 @@ document.getElementById('save-settings-btn').addEventListener('click', async () 
 
 // Settings logout button
 document.getElementById('settings-logout-btn').addEventListener('click', async () => {
-    const result = await window.electronAPI.config.logout();
-
-    if (result.success) {
-        showNotification('Logged out successfully', 'success');
-        currentUser = null;
-        updateConnectionStatus(false);
-
-        // Clear data
-        currentRoms = [];
-        currentPlatforms = [];
-        displayRoms([]);
-        displayPlatforms([]);
-
-        // Reset to server URL step
-        document.getElementById('connected-state').classList.remove('active');
-        document.getElementById('server-url-step').classList.add('active');
-
-        // Reset Next button to disabled when logging out
-        document.getElementById('next-to-auth-btn').disabled = true;
-        document.getElementById('next-to-auth-btn').classList.add('btn-disabled');
-    } else {
-        showNotification(`Logout error: ${result.error}`, 'error');
+    try {
+        const result = await window.electronAPI.config.logout();
+        if (result.success) {
+            // Logout successful - the IPC handler will reload the login page
+            console.log('Logout successful');
+        } else {
+            console.error('Logout failed:', result.error);
+            showResult('Logout failed', 'error');
+        }
+    } catch (error) {
+        console.error('Logout error:', error);
+        showResult('Logout failed', 'error');
     }
 });
 
@@ -271,6 +263,8 @@ async function searchRoms() {
     displayRoms(filteredRoms);
 }
 
+
+
 async function displayRoms(roms) {
     const grid = document.getElementById('roms-grid');
 
@@ -284,6 +278,7 @@ async function displayRoms(roms) {
         window.electronAPI.emulator.getConfigs(),
         window.electronAPI.emulator.getSupportedEmulators()
     ]);
+
 
     const emulatorConfigs = configsResult.success ? configsResult.data : {};
     const supportedEmulators = supportedResult.success ? supportedResult.data : {};
@@ -413,8 +408,11 @@ async function showRomDetail(rom) {
     const modal = document.getElementById('rom-modal');
     const detail = document.getElementById('rom-detail');
 
-    // Check if ROM is cached
-    const isCached = await checkRomCacheStatus(rom);
+    // Check if ROM is cached and has saves
+    const [isCached, hasSaves] = await Promise.all([
+        checkRomCacheStatus(rom),
+        checkRomSaveStatus(rom)
+    ]);
 
     // Get emulator configurations and supported emulators
     const [configsResult, supportedResult] = await Promise.all([
@@ -460,12 +458,18 @@ async function showRomDetail(rom) {
         buttonTitle = `title="${emulatorMessage}"`;
     }
 
+    // Create save status indicator
+    const saveStatusHtml = hasSaves
+        ? '<p><strong>Saves:</strong> <span class="save-indicator" title="Save data available">💾 Available</span></p>'
+        : '<p><strong>Saves:</strong> <span class="save-indicator" title="No save data found">❌ None</span></p>';
+
     detail.innerHTML = `
     <div class="rom-detail-header">
       <h2>${rom.name}</h2>
       <p><strong>Platform:</strong> ${rom.platform_name || rom.platform}</p>
       <p><strong>Region:</strong> ${rom.region || 'Unknown'}</p>
       <p><strong>Size:</strong> ${formatFileSize(rom.file_size_bytes || rom.files?.[0]?.file_size_bytes)}</p>
+      ${saveStatusHtml}
     </div>
 
     <div class="rom-detail-actions">
@@ -575,7 +579,7 @@ document.getElementById('cancel-download-btn').addEventListener('click', () => {
     if (isDownloading) {
         showNotification('Cancelling download...', 'info');
         hideDownloadProgressModal();
-        window.electronAPI.removeDownloadProgressListener();
+        window.electronAPI.removeDownloadProgressListener(); // Correct function name
         isDownloading = false;
     }
 });
@@ -588,58 +592,60 @@ async function launchRom(rom) {
 
     isDownloading = true;
 
-    // Setup download progress listener
-    window.electronAPI.onDownloadProgress((progress) => {
-        updateDownloadProgress(progress);
+    // Setup ROM download progress listener
+    window.electronAPI.onRomDownloadProgress((progress) => {
+        console.log('[FRONTEND] Received rom:download-progress', progress);
+        updateRomDownloadProgress(progress);
+    });
+
+    // Setup download complete listener
+    window.electronAPI.onDownloadComplete((data) => {
+        // Hide progress modal and remove listeners
+        hideDownloadProgressModal();
+        window.electronAPI.removeDownloadProgressListener(); // Correct function name
+        window.electronAPI.removeDownloadCompleteListener();
+
+        // ROM has been downloaded and cached, update cache status immediately
+        romCacheStatus.set(rom.id, true);
+
+        // Reload installed ROMs data to include the newly downloaded ROM
+        preloadInstalledRomsData().then(() => {
+            // If user is currently on the installed ROMs view, update the display
+            if (document.getElementById('installed-view').classList.contains('active')) {
+                loadInstalledRoms();
+            }
+        });
+
+        showNotification(`ROM downloaded: ${rom.name}`, 'success');
+        document.getElementById('rom-modal').classList.remove('show');
+
+        // Refresh ROM list to update cache status
+        scheduleRomListRefresh();
+
+        isDownloading = false;
     });
 
     // Show progress modal
     showDownloadProgressModal(rom.name);
 
     try {
-        const result = await window.electronAPI.emulator.launch(rom, null);
+        // Start the launch process (returns immediately)
+        const result = await window.electronAPI.roms.launch(rom, null);
 
-        // Hide progress modal and remove listener
-        hideDownloadProgressModal();
-        window.electronAPI.removeDownloadProgressListener();
-
-        if (result.success) {
-            // ROM has been downloaded and cached, update cache status immediately
-            romCacheStatus.set(rom.id, true);
-
-            // Invalidate installed ROMs cache so the "Installed" view gets updated
-            cachedInstalledRoms = null;
-            cachedInstalledPlatforms = null;
-            allInstalledRoms = [];
-            installedPlatforms = [];
-
-            // Check if we need to show save choice modal
-            if (result.needsSaveChoice) {
-                showSaveChoiceModal(result.saveComparison, result.romData);
-            } else {
-                // ROM was launched automatically (no save choice needed)
-                showNotification(`ROM launched: ${rom.name}`, 'success');
-                document.getElementById('rom-modal').classList.remove('show');
-
-                // ROM has been downloaded and cached, update cache status immediately
-                romCacheStatus.set(rom.id, true);
-
-                // Invalidate installed ROMs cache so the "Installed" view gets updated
-                cachedInstalledRoms = null;
-                cachedInstalledPlatforms = null;
-                allInstalledRoms = [];
-                installedPlatforms = [];
-
-                // Refresh ROM list to update cache status (keep as backup)
-                scheduleRomListRefresh();
-            }
-        } else {
+        if (!result.success) {
+            // Hide modal and show error if launch failed to start
+            hideDownloadProgressModal();
+            window.electronAPI.removeDownloadProgressListener(); // Correct function name
+            window.electronAPI.removeDownloadCompleteListener();
             showNotification(`Error: ${result.error}`, 'error');
+            isDownloading = false;
         }
     } catch (error) {
-        console.error(`[Launch Error] Failed to launch ROM ${rom.name}:`, error);
+        console.error(`[Launch Error] Failed to start ROM launch ${rom.name}:`, error);
+        hideDownloadProgressModal();
+        window.electronAPI.removeDownloadProgressListener(); // Correct function name
+        window.electronAPI.removeDownloadCompleteListener();
         showNotification(`Error: ${error.message}`, 'error');
-    } finally {
         isDownloading = false;
     }
 }
@@ -666,77 +672,123 @@ function hideDownloadProgressModal() {
     isDownloading = false;
 }
 
-function updateDownloadProgress(progress) {
+// Update ROM download progress bar
+function updateRomDownloadProgress(progress) {
     const progressBar = document.getElementById('progress-bar-fill');
     const progressPercent = document.getElementById('progress-percent');
     const progressSize = document.getElementById('progress-size');
     const modalTitle = document.getElementById('progress-modal-title');
 
     if (progress.step === 'extracting') {
-        // Extraction progress
         modalTitle.textContent = 'Extracting ROM';
         progressBar.style.width = `${progress.percent}%`;
         progressPercent.textContent = progress.message;
         progressSize.textContent = '';
     } else if (progress.step === 'error') {
-        // Error state
         modalTitle.textContent = 'Error';
         progressPercent.textContent = progress.message;
         progressBar.style.width = '0%';
         progressSize.textContent = '';
     } else {
-        // Download progress (existing logic)
         modalTitle.textContent = 'Downloading ROM';
         progressBar.style.width = `${progress.percent}%`;
-        progressPercent.textContent = `${progress.percent}%`;
-        progressSize.textContent = `${progress.downloaded} MB / ${progress.total} MB`;
+        if (progress.message === 'ROM already available') {
+            progressPercent.textContent = progress.message;
+            progressSize.textContent = '';
+        } else {
+            progressPercent.textContent = `${progress.percent}%`;
+            let sizeText = `${progress.downloaded} MB / ${progress.total} MB`;
+            if (progress.totalFilesNumber && progress.currentFileNumber) {
+                sizeText += ` (File ${progress.currentFileNumber}/${progress.totalFilesNumber})`;
+            }
+            progressSize.textContent = sizeText;
+        }
     }
 }
 
-function showSaveChoiceModal(saveComparison, romData) {
+// Update app update download progress bar (if used elsewhere)
+function updateAppUpdateProgress(percent, info) {
+    const progressBar = document.getElementById('progress-bar-fill');
+    const progressPercent = document.getElementById('progress-percent');
+    const modalTitle = document.getElementById('progress-modal-title');
+
+    modalTitle.textContent = 'Downloading Update';
+    progressBar.style.width = `${percent}%`;
+    progressPercent.textContent = `${percent}%`;
+    // Optionally display info if needed
+}
+
+function showSaveChoiceModal(saveData, context) {
+    console.log('[FRONTEND] showSaveChoiceModal called with:', saveData);
     const modal = document.getElementById('save-choice-modal');
     const optionsContainer = document.getElementById('save-options');
+
+    // Force hide modal first to ensure clean state
+    modal.classList.remove('show');
 
     // Clear previous options
     optionsContainer.innerHTML = '';
 
-    // Create save options array with timestamps for sorting
+    // Create save options array
     const options = [];
 
-    // Add only the 5 most recent cloud saves
-    if (saveComparison.hasCloud && saveComparison.cloudSaves.length > 0) {
-        const recentCloudSaves = saveComparison.cloudSaves.slice(0, 5);
+    // Add cloud saves (max 5 most recent)
+    if (saveData.hasCloud && saveData.cloudSaves && saveData.cloudSaves.length > 0) {
+        // Sort cloud saves by date (most recent first) and take the first 5
+        const sortedCloudSaves = saveData.cloudSaves.sort((a, b) => {
+            const dateA = new Date(a.created_at || a.updated_at || 0);
+            const dateB = new Date(b.created_at || b.updated_at || 0);
+            return dateB.getTime() - dateA.getTime(); // Most recent first
+        });
+        const recentCloudSaves = sortedCloudSaves.slice(0, 5);
 
         recentCloudSaves.forEach((cloudSave, index) => {
+            // Extract filename from download_path or use fileName
+            const zipName = cloudSave.download_path
+                ? cloudSave.download_path.split('/').pop() || cloudSave.file_name || `save_${index + 1}.zip`
+                : cloudSave.file_name || `save_${index + 1}.zip`;
+
+            // Use created_at date if available, otherwise updated_at date, otherwise show "Unknown date"
+            const dateField = cloudSave.created_at || cloudSave.updated_at;
+            const dateDisplay = dateField
+                ? new Date(dateField).toLocaleString()
+                : 'Unknown date';
+
             options.push({
                 type: 'cloud',
                 saveId: cloudSave.id,
                 title: `☁️ Cloud Save ${recentCloudSaves.length > 1 ? `#${index + 1}` : ''}`,
-                description: `${cloudSave.fileName} - Last modified: ${cloudSave.updatedStr}`,
-                timestamp: new Date(cloudSave.updated).getTime()
+                description: `${zipName} - Created: ${dateDisplay}`,
+                timestamp: dateField ? new Date(dateField).getTime() : Date.now() - (recentCloudSaves.length - index) * 60000 // Fallback timestamps
             });
         });
     }
 
-    // Add local save with its timestamp
-    if (saveComparison.hasLocal) {
+    // Add local save
+    if (saveData.hasLocal) {
+        // Get the modification date of the local save directory
+        let localDateDisplay = 'Unknown date';
+        let localTimestamp = Date.now() - 1000; // Default fallback
+        if (saveData.localSaveDate) {
+            try {
+                const localDate = new Date(saveData.localSaveDate);
+                localDateDisplay = localDate.toLocaleString();
+                localTimestamp = localDate.getTime();
+            } catch (error) {
+                console.warn('Could not parse local save date:', error);
+                localDateDisplay = 'Local save available';
+            }
+        }
+
         options.push({
             type: 'local',
             title: '💾 Local Save',
-            description: `Last modified: ${saveComparison.localSave.modifiedStr}`,
-            timestamp: saveComparison.localSave.modified
+            description: `Your local saved game - Modified: ${localDateDisplay}`,
+            timestamp: localTimestamp
         });
     }
 
-    // Sort all options by timestamp (most recent first)
-    options.sort((a, b) => b.timestamp - a.timestamp);
-
-    // Mark the most recent save as recommended
-    if (options.length > 0) {
-        options[0].recommended = true;
-    }
-
-    // Add "New Game" option at the end
+    // Add "New Game" option
     options.push({
         type: 'none',
         title: '🆕 New Game',
@@ -744,6 +796,14 @@ function showSaveChoiceModal(saveComparison, romData) {
         recommended: false,
         timestamp: 0
     });
+
+    // Sort options by timestamp (most recent first)
+    options.sort((a, b) => b.timestamp - a.timestamp);
+
+    // Mark most recent as recommended (after sorting)
+    if (options.length > 0) {
+        options[0].recommended = true;
+    }
 
     // Create option buttons
     options.forEach(option => {
@@ -753,18 +813,47 @@ function showSaveChoiceModal(saveComparison, romData) {
             <h3>${option.title}${option.recommended ? ' <span class="recommended-badge">Recommended</span>' : ''}</h3>
             <p>${option.description}</p>
         `;
-        optionDiv.addEventListener('click', () => selectSaveAndLaunch(option.type, romData, option.saveId));
+        optionDiv.addEventListener('click', () => selectSaveFromModal(option.type, option.saveId));
         optionsContainer.appendChild(optionDiv);
     });
 
     // Show modal
     modal.classList.add('show');
 
-    // Close ROM modal
-    document.getElementById('rom-modal').classList.remove('show');
+    // Close other modals
+    const romModal = document.getElementById('rom-modal');
+    if (romModal) {
+        romModal.classList.remove('show');
+    }
+
+    const downloadModal = document.getElementById('download-progress-modal');
+    if (downloadModal) {
+        downloadModal.classList.remove('show');
+    }
 }
 
+/**
+ * New function: Send save choice back to main process via IPC
+ * This is called from the modal triggered by launchRomWithSavesFlow
+ */
+async function selectSaveFromModal(saveChoice, saveId = null) {
+    console.log(`[FRONTEND] selectSaveFromModal called with choice: ${saveChoice}, saveId: ${saveId}`);
+
+    // Hide modal
+    const modal = document.getElementById('save-choice-modal');
+    modal.classList.remove('show');
+
+    // Send the choice back to main process
+    window.electronEvents.sendSaveChoice(saveChoice, saveId);
+}
+
+/**
+ * Old function: For legacy flow with emulator.launchWithSaveChoice
+ * Keeping for backward compatibility
+ */
 async function selectSaveAndLaunch(saveChoice, romData, saveId = null) {
+    console.log(`[FRONTEND] selectSaveAndLaunch - Old flow: ${saveChoice}${saveId ? ` (ID: ${saveId})` : ''}`);
+
     // Hide modal
     document.getElementById('save-choice-modal').classList.remove('show');
 
@@ -774,17 +863,21 @@ async function selectSaveAndLaunch(saveChoice, romData, saveId = null) {
     // Launch with selected save (include saveId for cloud saves)
     const result = await window.electronAPI.emulator.launchWithSaveChoice(romData, saveChoice, saveId);
 
+
+
     if (result.success) {
         showNotification(`ROM launched: ${romData.rom.name}`, 'success');
 
         // ROM has been downloaded and cached, update cache status immediately
         romCacheStatus.set(romData.rom.id, true);
 
-        // Invalidate installed ROMs cache so the "Installed" view gets updated
-        cachedInstalledRoms = null;
-        cachedInstalledPlatforms = null;
-        allInstalledRoms = [];
-        installedPlatforms = [];
+        // Reload installed ROMs data to include the newly downloaded ROM
+        preloadInstalledRomsData().then(() => {
+            // If user is currently on the installed ROMs view, update the display
+            if (document.getElementById('installed-view').classList.contains('active')) {
+                loadInstalledRoms();
+            }
+        });
 
         // Refresh ROM list to update cache status (keep as backup)
         scheduleRomListRefresh();
@@ -795,39 +888,20 @@ async function selectSaveAndLaunch(saveChoice, romData, saveId = null) {
 
 // Platforms
 document.getElementById('refresh-platforms-btn').addEventListener('click', () => {
-    invalidateCache();
     loadPlatforms();
 });
-
-// Global variables for caching data
-let cachedPlatforms = null;
-let cachedStats = null;
-let cachedInstalledRoms = null;
-let cachedInstalledPlatforms = null;
-let lastCacheTime = 0;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
 
 // Global variables for installed ROMs filtering
 let allInstalledRoms = [];
 let installedPlatforms = [];
 
-// Cache management functions
-function isCacheValid() {
-    return Date.now() - lastCacheTime < CACHE_DURATION;
-}
-
-function invalidateCache() {
-    cachedPlatforms = null;
-    cachedStats = null;
-    cachedInstalledRoms = null;
-    cachedInstalledPlatforms = null;
-    lastCacheTime = 0;
-    allInstalledRoms = [];
-    installedPlatforms = [];
-
-    // Reset loaded views to force reload
-    loadedViews.platforms = false;
-    loadedViews.installed = false;
+async function checkRomCacheStatus(rom) {
+    if (!allInstalledRoms.filter(r => r.id === rom.id).length > 0) {
+        console.log(`[ROM MANAGER] ROM is not installed: ${rom.name} (ID: ${rom.id})`);
+        return false;
+    }
+    console.log(`[ROM MANAGER] ROM is installed: ${rom.name} (ID: ${rom.id})`);
+    return true;
 }
 
 async function preloadData() {
@@ -847,10 +921,24 @@ async function preloadData() {
         // Load stats
         await loadStatsBar();
 
+        // Load all remote ROMs
+        const remoteRomsResult = await window.electronAPI.roms.fetchAll();
+        if (remoteRomsResult) {
+            remoteRoms = remoteRomsResult;
+            console.log(`Loaded ${remoteRoms.length} remote ROMs`);
+        }
+
+        // Load all local ROMs
+        const localRomsResult = await window.electronAPI.roms.fetchLocal();
+        if (localRomsResult) {
+            localRoms = localRomsResult;
+            console.log(`Loaded ${localRoms.length} local ROMs`);
+        }
+
         // Load platforms
         const platformsResult = await window.electronAPI.platforms.fetchAll();
         if (platformsResult.success) {
-            cachedPlatforms = platformsResult.data;
+            currentPlatforms = platformsResult.data;
             loadedViews.platforms = true; // Mark platforms as loaded
         }
 
@@ -858,7 +946,6 @@ async function preloadData() {
         await preloadInstalledRomsData();
         loadedViews.installed = true; // Mark installed ROMs as loaded
 
-        lastCacheTime = Date.now();
         console.log('Data preloaded successfully');
         return true;
 
@@ -870,50 +957,41 @@ async function preloadData() {
 
 async function preloadInstalledRomsData() {
     try {
-        if (!cachedPlatforms) return;
+        // Always reload local ROMs to get the latest installed ROMs
+        const localRomsResult = await window.electronAPI.roms.fetchLocal();
+        if (localRomsResult) {
+            localRoms = localRomsResult;
+            console.log(`Reloaded ${localRoms.length} local ROMs`);
+        }
 
-        const platforms = cachedPlatforms;
-        const platformMap = {};
-        platforms.forEach(platform => {
-            platformMap[platform.id] = platform;
+        if (!currentPlatforms || !localRoms) return;
+
+        // Filter ROMs that are cached/installed (localRoms contains the installed ones)
+        const installedRoms = localRoms.map(localRom => {
+            // Find the corresponding remote ROM info
+            const remoteRom = remoteRoms.find(r => r.id === localRom.id);
+            if (remoteRom) {
+                return {
+                    ...remoteRom,
+                    localPath: localRom.localPath,
+                    // Add platform info
+                    platform_name: remoteRom.platform_name || 'Unknown',
+                    platform_slug: remoteRom.platform_slug,
+                    platform_id: remoteRom.platform_id
+                };
+            }
+            return localRom; // fallback
         });
 
-        // Get all ROMs from all platforms
-        const allRoms = [];
-        for (const platform of platforms) {
-            if (platform.rom_count > 0) {
-                const romsResult = await window.electronAPI.roms.getByPlatform(platform.id);
-                if (romsResult.success && romsResult.data.items) {
-                    // Add platform info to each ROM
-                    const romsWithPlatform = romsResult.data.items.map(rom => ({
-                        ...rom,
-                        platform_name: platform.display_name || platform.name,
-                        platform_slug: platform.slug || platform.name.toLowerCase().replace(/\s+/g, '-'),
-                        platform_id: platform.id
-                    }));
-                    allRoms.push(...romsWithPlatform);
-                }
-            }
-        }
-
-        // Filter ROMs that are cached/installed
-        const installedRoms = [];
-        for (const rom of allRoms) {
-            const isCached = await checkRomCacheStatus(rom);
-            if (isCached) {
-                installedRoms.push(rom);
-            }
-        }
+        console.log('Installed ROMs:', installedRoms);
 
         // Get unique platforms that have installed ROMs
         const installedPlatformIds = [...new Set(installedRoms.map(rom => rom.platform_id))];
-        const platformsWithInstalledRoms = platforms.filter(platform => installedPlatformIds.includes(platform.id));
+        const platformsWithInstalledRoms = currentPlatforms.filter(platform => installedPlatformIds.includes(platform.id));
 
-        // Cache the data
-        cachedInstalledRoms = installedRoms;
-        cachedInstalledPlatforms = platformsWithInstalledRoms;
+        // Store the data (no more caching, just direct assignment)
         allInstalledRoms = installedRoms;
-        installedPlatforms = [];
+        installedPlatforms = platformsWithInstalledRoms;
 
     } catch (error) {
         console.error('Error preloading installed ROMs data:', error);
@@ -921,10 +999,9 @@ async function preloadInstalledRomsData() {
 }
 
 async function loadPlatforms() {
-    // Use cached data if available and valid
-    if (cachedPlatforms && isCacheValid()) {
-        console.log('Using cached platforms data');
-        currentPlatforms = cachedPlatforms;
+    // Use preloaded data if available
+    if (currentPlatforms && currentPlatforms.length > 0) {
+        console.log('Using preloaded platforms data');
         displayPlatforms(currentPlatforms);
         return;
     }
@@ -933,8 +1010,6 @@ async function loadPlatforms() {
 
     if (result.success) {
         currentPlatforms = result.data;
-        // Cache the data
-        cachedPlatforms = result.data;
         displayPlatforms(currentPlatforms);
     } else {
         showNotification(`Error: ${result.error}`, 'error');
@@ -963,17 +1038,22 @@ async function displayPlatforms(platforms) {
         window.electronAPI.emulator.getSupportedEmulators()
     ]);
 
+
+
+
     const emulatorConfigs = configsResult.success ? configsResult.data : {};
     const supportedEmulators = supportedResult.success ? supportedResult.data : {};
+
+
 
     // Get base URL from API
     const baseUrl = await window.electronAPI.config.getBaseUrl();
 
     list.innerHTML = platformsWithRoms.map(platform => {
-        // Use igdb_slug if available (for identified platforms), otherwise use slug
-        // For unidentified platforms, no image will be available
-        const platformSlug = platform.igdb_slug || (platform.is_identified ? platform.slug : null);
-        const platformImage = platformSlug ? `${baseUrl}/assets/platforms/${platformSlug}.svg` : '';
+
+        const platformSlug = platform.slug || (platform.is_identified ? platform.fs_slug : null);
+        const platformImageSvg = platformSlug ? `${baseUrl}/assets/platforms/${platformSlug}.svg` : '';
+        const platformImageIco = platformSlug ? `${baseUrl}/assets/platforms/${platformSlug}.ico` : '';
 
         // Check if platform is supported and configured
         const platformKey = platform.slug || platform.name.toLowerCase().replace(/\s+/g, '-');
@@ -1003,12 +1083,18 @@ async function displayPlatforms(platforms) {
 
         return `
       <div class="platform-card ${platformDisabled ? 'disabled' : ''}" data-platform-id="${platform.id}" ${platformTitle}>
-        ${platformImage ? `<img src="${platformImage}" alt="${platform.display_name || platform.name}" onerror='this.style.display="none"' />` : '<span class="platform-emoji">🎮</span>'}
+        <div class="platform-image-container" data-svg="${platformImageSvg}" data-ico="${platformImageIco}">
+          <img src="${platformImageSvg}" alt="${platform.display_name || platform.name}" class="platform-image platform-image-svg" />
+          <img src="${platformImageIco}" alt="${platform.display_name || platform.name}" class="platform-image platform-image-ico" style="display: none;" />
+        </div>
         <h3>${platform.display_name || platform.name}</h3>
         <p>${platform.rom_count || 0} ROM${platform.rom_count > 1 ? 's' : ''}</p>
       </div>
     `;
     }).join('');
+
+    // Setup platform image fallback
+    setupPlatformImageFallback();
 
     list.querySelectorAll('.platform-card:not([disabled])').forEach(card => {
         card.addEventListener('click', async () => {
@@ -1021,18 +1107,56 @@ async function displayPlatforms(platforms) {
     });
 }
 
+function setupPlatformImageFallback() {
+    // Handle platform image fallback after DOM is updated
+    document.querySelectorAll('.platform-image-container').forEach(container => {
+        const svgImg = container.querySelector('.platform-image-svg');
+        const icoImg = container.querySelector('.platform-image-ico');
+
+        if (svgImg && icoImg) {
+            // Check if SVG loads successfully
+            svgImg.addEventListener('error', function () {
+                //    console.log('SVG failed to load, showing ICO fallback:', this.src);
+                this.style.display = 'none';
+                icoImg.style.display = 'block';
+            });
+
+            svgImg.addEventListener('load', function () {
+                //  console.log('SVG loaded successfully:', this.src);
+                // SVG loaded, keep it visible and hide ICO
+                this.style.display = 'block';
+                icoImg.style.display = 'none';
+            });
+
+            // Handle ICO fallback if it also fails
+            icoImg.addEventListener('error', function () {
+                //   console.log('ICO also failed to load, showing emoji fallback:', this.src);
+                container.innerHTML = '<span class="platform-emoji">🎮</span>';
+            });
+
+            // If SVG is already cached/loaded, the load event might not fire
+            // So we also check after a short delay
+            setTimeout(() => {
+                if (svgImg.complete && svgImg.naturalHeight === 0) {
+                    //   console.log('SVG failed to load (cached), showing ICO fallback:', svgImg.src);
+                    svgImg.style.display = 'none';
+                    icoImg.style.display = 'block';
+                }
+            }, 100);
+        }
+    });
+}
+
 // Installed ROMs
 async function loadInstalledRoms() {
-    // Use cached data if available and valid
-    if (cachedInstalledRoms && cachedInstalledPlatforms && isCacheValid()) {
-        console.log('Using cached installed ROMs data');
-        allInstalledRoms = cachedInstalledRoms;
-        installedPlatforms = cachedInstalledPlatforms;
+    // Use preloaded data
+    if (allInstalledRoms && installedPlatforms) {
+        console.log('Using preloaded installed ROMs data');
 
         // Populate platform filter dropdown
         const platformFilter = document.getElementById('installed-platform-filter');
         platformFilter.innerHTML = '<option value="">All Platforms</option>';
-        cachedInstalledPlatforms.forEach(platform => {
+        installedPlatforms.forEach(platform => {
             const option = document.createElement('option');
             option.value = platform.id;
             option.textContent = platform.display_name || platform.name;
@@ -1044,84 +1168,11 @@ async function loadInstalledRoms() {
         return;
     }
 
-    const container = document.getElementById('installed-roms-list');
-    container.innerHTML = '<p class="empty-state">Loading installed ROMs...</p>';
-
-    try {
-        // Get all platforms first to map platform names
-        const platformsResult = await window.electronAPI.platforms.fetchAll();
-        if (!platformsResult.success) {
-            container.innerHTML = '<p class="empty-state error">Failed to load platforms</p>';
-            return;
-        }
-
-        const platforms = platformsResult.data;
-        const platformMap = {};
-        platforms.forEach(platform => {
-            platformMap[platform.id] = platform;
-        });
-
-        // Get all ROMs from all platforms
-        const allRoms = [];
-        for (const platform of platforms) {
-            if (platform.rom_count > 0) {
-                const romsResult = await window.electronAPI.roms.getByPlatform(platform.id);
-                if (romsResult.success && romsResult.data.items) {
-                    // Add platform info to each ROM
-                    const romsWithPlatform = romsResult.data.items.map(rom => ({
-                        ...rom,
-                        platform_name: platform.display_name || platform.name,
-                        platform_slug: platform.slug || platform.name.toLowerCase().replace(/\s+/g, '-'),
-                        platform_id: platform.id
-                    }));
-                    allRoms.push(...romsWithPlatform);
-                }
-            }
-        }
-
-        // Filter ROMs that are cached/installed
-        const installedRoms = [];
-        for (const rom of allRoms) {
-            const isCached = await checkRomCacheStatus(rom);
-            if (isCached) {
-                installedRoms.push(rom);
-            }
-        }
-
-        // Get unique platforms that have installed ROMs
-        const installedPlatformIds = [...new Set(installedRoms.map(rom => rom.platform_id))];
-        const platformsWithInstalledRoms = platforms.filter(platform => installedPlatformIds.includes(platform.id));
-
-        // Populate platform filter dropdown with only platforms that have installed ROMs
-        const platformFilter = document.getElementById('installed-platform-filter');
-        platformFilter.innerHTML = '<option value="">All Platforms</option>';
-        platformsWithInstalledRoms.forEach(platform => {
-            const option = document.createElement('option');
-            option.value = platform.id;
-            option.textContent = platform.display_name || platform.name;
-            platformFilter.appendChild(option);
-        });
-
-        // Store globally for filtering
-        allInstalledRoms = installedRoms;
-        installedPlatforms = platforms;
-
-        // Cache the data
-        cachedInstalledRoms = installedRoms;
-        cachedInstalledPlatforms = platformsWithInstalledRoms;
-
-        // Apply current filters
-        applyFilters();
-
-    } catch (error) {
-        console.error('Error loading installed ROMs:', error);
-        container.innerHTML = '<p class="empty-state error">Error loading installed ROMs</p>';
-    }
+    console.log('No preloaded installed ROMs data available');
 }
 
 // Installed ROMs event listeners
 document.getElementById('refresh-installed-btn').addEventListener('click', () => {
-    invalidateCache();
     loadInstalledRoms();
 });
 document.getElementById('installed-platform-filter').addEventListener('change', applyFilters);
@@ -1167,7 +1218,7 @@ async function displayInstalledRoms(roms) {
             const sizeResult = await window.electronAPI.getRomCacheSize(rom);
             return {
                 ...rom,
-                cacheSize: sizeResult.success ? sizeResult.size : 0
+                cacheSize: sizeResult.success ? sizeResult.data : 0
             };
         } catch (error) {
             console.warn(`Failed to get cache size for ROM ${rom.id}:`, error);
@@ -1186,6 +1237,9 @@ async function displayInstalledRoms(roms) {
 
         return `
       <div class="installed-rom-card" data-rom-id="${rom.id}">
+        <button class="btn-delete delete-rom-btn" data-rom-id="${rom.id}" title="Remove ROM from filesystem">
+          🗑️
+        </button>
         <div class="installed-rom-header">
           <div class="installed-rom-cover">
             ${coverUrl ? `<img src="${coverUrl}" alt="${rom.name}" onerror="this.parentElement.innerHTML='🎮'">` : '🎮'}
@@ -1195,9 +1249,6 @@ async function displayInstalledRoms(roms) {
             <p>${rom.platform_name || rom.platform}</p>
             <p class="rom-size">${formatFileSize(rom.cacheSize)}</p>
           </div>
-          <button class="btn-delete delete-rom-btn" data-rom-id="${rom.id}" title="Remove ROM from filesystem">
-            🗑️
-          </button>
         </div>
         <div class="installed-rom-actions">
           <button class="btn-launch launch-rom-btn" data-rom-id="${rom.id}" title="Launch ROM">
@@ -1248,16 +1299,29 @@ async function deleteCachedRom(rom) {
         const result = await window.electronAPI.deleteCachedRom(rom);
         if (result.success) {
             showNotification(`ROM "${rom.name}" deleted successfully`, 'success');
-            // Clear ROM cache status and invalidate main cache
+
+            // Remove the ROM from the cached data instead of clearing everything
             romCacheStatus.delete(rom.id);
             romSaveStatus.delete(rom.id);
-            invalidateCache();
-            loadInstalledRoms();
+
+            // Remove the ROM from allInstalledRoms array
+            allInstalledRoms = allInstalledRoms.filter(r => r.id !== rom.id);
+
+            // Recalculate installedPlatforms - only keep platforms that still have ROMs
+            const remainingPlatformIds = [...new Set(allInstalledRoms.map(r => r.platform_id))];
+            installedPlatforms = installedPlatforms.filter(p => remainingPlatformIds.includes(p.id));
+
+            // Update the UI with the filtered data
+            applyFilters();
+
         } else {
             showNotification(`Error deleting ROM: ${result.error}`, 'error');
+            // Don't clear cache if deletion failed - keep the ROM in the list
+            console.error('ROM deletion failed:', result.error);
         }
     } catch (error) {
         showNotification(`Error: ${error.message}`, 'error');
+        console.error('ROM deletion error:', error);
     }
 }
 
@@ -1287,15 +1351,11 @@ async function loadRomsForPlatform(platformId, platform) {
     // Clear cache status when loading new platform
     clearCacheStatus();
 
-    // Fetch ROMs
-    const result = await window.electronAPI.roms.getByPlatform(platformId);
+    // Filter ROMs from preloaded remote ROMs
+    const platformRoms = remoteRoms.filter(rom => rom.platform_id === platformId || rom.platform_slug === platformId);
+    currentRoms = platformRoms;
 
-    if (result.success) {
-        currentRoms = result.data.items || result.data;
-        displayRoms(currentRoms);
-    } else {
-        showNotification(`Error: ${result.error}`, 'error');
-    }
+    displayRoms(currentRoms);
 }
 
 // Back to platforms button
@@ -1311,15 +1371,24 @@ async function loadEmulatorsConfig() {
         window.electronAPI.emulator.getSupportedEmulators()
     ]);
 
+
+
     if (configsResult.success && supportedResult.success) {
         displayEmulatorsConfig(configsResult.data, supportedResult.data);
+    } else {
+        console.error('Failed to load emulator configs:', { configsResult, supportedResult });
     }
 }
 
 function displayEmulatorsConfig(configs, supportedEmulators) {
     const container = document.getElementById('emulators-config');
 
-    container.innerHTML = `
+    if (!container) {
+        console.error('emulators-config container not found!');
+        return;
+    }
+
+    const html = `
     <p class="info-text">Configure the path to your emulators</p>
     <div>
     <p  class="info-text">⚠️Note: We recommend using emulators that you're not using for other purposes to avoid configuration / save conflicts. </p>
@@ -1328,34 +1397,64 @@ function displayEmulatorsConfig(configs, supportedEmulators) {
       <div class="emulator-item">
         <h4>${emulator.name}</h4>
         <p class="emulator-platforms">Supports: ${emulator.platforms.join(', ').toUpperCase()}</p>
-        <input
-          type="text"
-          data-emulator="${emulatorKey}"
-          value="${configs[emulatorKey]?.path || ''}"
-          placeholder="C:\\emulators\\${emulator.name}\\${emulator.name}.exe"
-        >
+        <div class="emulator-config-row">
+          <input
+            type="text"
+            data-emulator="${emulatorKey}"
+            value="${configs[emulatorKey]?.path || ''}"
+            placeholder="C:\\emulators\\${emulator.name}\\${emulator.name}.exe"
+          >
+          <button class="btn-config-emulator" data-emulator="${emulatorKey}" title="Configure ${emulator.name}">⚙️ Configure</button>
+        </div>
       </div>
     `).join('')}
     <button class="btn-primary" id="save-emulators-btn" style="margin-top: 1rem;">Save</button>
   `;
 
+    container.innerHTML = html;
+
+    // Add event listeners for configure buttons
+    container.querySelectorAll('.btn-config-emulator').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            const emulatorKey = e.target.dataset.emulator;
+            const emulatorPath = container.querySelector(`input[data-emulator="${emulatorKey}"]`).value.trim();
+
+            if (!emulatorPath) {
+                showNotification(`Please set the path for ${supportedEmulators[emulatorKey].name} first`, 'error');
+                return;
+            }
+
+            try {
+                showNotification(`Starting ${supportedEmulators[emulatorKey].name} in configuration mode...`, 'info');
+                const result = await window.electronAPI.emulator.configureEmulator(emulatorKey, emulatorPath);
+                if (result.success) {
+                    showNotification(`${supportedEmulators[emulatorKey].name} configuration completed!`, 'success');
+                } else {
+                    showNotification(`Configuration failed: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Error: ${error.message}`, 'error');
+            }
+        });
+    });
+
+    // Add auto-save on input change
+    const inputs = container.querySelectorAll('input');
+    // Autosave disabled, config is only saved when clicking Save
+
     document.getElementById('save-emulators-btn').addEventListener('click', async () => {
         const inputs = container.querySelectorAll('input');
-
         for (const input of inputs) {
             const emulatorKey = input.dataset.emulator;
-            const path = input.value;
-
-            if (path) {
-                // Configure for all platforms supported by this emulator
-                const emulator = supportedEmulators[emulatorKey];
-                for (const platform of emulator.platforms) {
-                    await window.electronAPI.emulator.configure(platform, path);
-                }
-            }
+            const path = input.value.trim();
+            await window.electronAPI.emulator.saveConfig(emulatorKey, path);
         }
-
         showNotification('Configuration saved!', 'success');
+        // Always reload platforms after saving emulator config
+        // Switch to platforms view and reload
+        document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+        document.getElementById('platforms-view').classList.add('active');
+        loadPlatforms();
     });
 }
 
@@ -1375,37 +1474,7 @@ function formatFileSize(bytes) {
     return `${size.toFixed(2)} ${units[unitIndex]}`;
 }
 
-// Check if ROM is cached
-async function checkRomCacheStatus(rom) {
-    if (romCacheStatus.has(rom.id)) {
-        return romCacheStatus.get(rom.id);
-    }
 
-    try {
-        const result = await window.electronAPI.checkRomCacheIntegrity(rom);
-        if (result.success) {
-            // Store the cache status
-            romCacheStatus.set(rom.id, result.cached);
-
-            // Log integrity verification results if available
-            if (result.integrity) {
-                if (result.integrity.verified) {
-                    console.log(`[CACHE] ROM ${rom.id} integrity verified ✅`);
-                } else {
-                    console.warn(`[CACHE] ROM ${rom.id} integrity check failed ⚠️`, result.integrity);
-                }
-            }
-
-            return result.cached;
-        } else {
-            console.error(`Error checking cache integrity for ROM ${rom.id}:`, result.error);
-            return false;
-        }
-    } catch (error) {
-        console.error(`Error checking cache for ROM ${rom.id}:`, error);
-        return false;
-    }
-}
 
 // Check if ROM has saves (cloud or local)
 async function checkRomSaveStatus(rom) {
@@ -1415,8 +1484,9 @@ async function checkRomSaveStatus(rom) {
 
     try {
         const result = await window.electronAPI.checkRomSaves(rom);
-        romSaveStatus.set(rom.id, result.hasSaves);
-        return result.hasSaves;
+        const hasSaves = result.hasLocal || result.hasCloud;
+        romSaveStatus.set(rom.id, hasSaves);
+        return hasSaves;
     } catch (error) {
         console.error(`Error checking saves for ROM ${rom.id}:`, error);
         return false;
@@ -1478,35 +1548,10 @@ function showNotification(message, type) {
 
 // Load and update stats bar
 async function loadStatsBar() {
-    // Use cached data if available and valid
-    if (cachedStats && isCacheValid()) {
-        console.log('Using cached stats data');
-        const stats = cachedStats;
-
-        // Update stats bar values
-        document.getElementById('stat-platforms').textContent = stats.PLATFORMS || 0;
-        document.getElementById('stat-roms').textContent = stats.ROMS || 0;
-        document.getElementById('stat-saves').textContent = stats.SAVES || 0;
-        document.getElementById('stat-states').textContent = stats.STATES || 0;
-        document.getElementById('stat-screenshots').textContent = stats.SCREENSHOTS || 0;
-
-        // Format storage
-        const totalSizeGB = (stats.TOTAL_FILESIZE_BYTES / (1024 * 1024 * 1024)).toFixed(1);
-        const totalSizeTB = (stats.TOTAL_FILESIZE_BYTES / (1024 * 1024 * 1024 * 1024)).toFixed(2);
-        const displaySize = totalSizeTB >= 1 ? `${totalSizeTB} TB` : `${totalSizeGB} GB`;
-        document.getElementById('stat-storage').textContent = displaySize;
-
-        // Show stats bar
-        document.getElementById('stats-bar').style.display = 'flex';
-        return;
-    }
-
     const result = await window.electronAPI.stats.fetch();
 
     if (result.success) {
         const stats = result.data;
-        // Cache the stats
-        cachedStats = stats;
 
         // Update stats bar values
         document.getElementById('stat-platforms').textContent = stats.PLATFORMS || 0;
@@ -1528,15 +1573,44 @@ async function loadStatsBar() {
 
 // Initialization
 document.addEventListener('DOMContentLoaded', async () => {
-    // Setup navigation between views
-    console.log('Setting up navigation...');
-    console.log('Available views:', document.querySelectorAll('.view').length);
-    document.querySelectorAll('.view').forEach(view => console.log('Found view:', view.id));
+    // Attach download:progress listener globally
+    window.electronAPI.removeDownloadProgressListener();
+    window.electronAPI.onRomDownloadProgress((progress) => {
+        updateDownloadProgress(progress);
+    });
 
+    // Attach save choice modal listener
+    window.electronEvents.removeSaveChoiceListener?.();
+    window.electronEvents.onSaveChoiceModal((saveData) => {
+        showSaveChoiceModal(saveData, { rom: saveData.rom });
+    });
+
+    // Attach ROM launch event listeners
+    window.electronEvents.removeRomLaunchListeners?.();
+    window.electronEvents.onRomLaunched((data) => {
+        hideDownloadProgressModal();
+        showNotification(`ROM launched: ${data.romName} (PID: ${data.pid})`, 'success');
+
+        // ROM has been downloaded and cached, update cache status immediately
+        romCacheStatus.set(data.romId, true);
+
+        // Reload installed ROMs data to include the newly downloaded ROM
+        preloadInstalledRomsData().then(() => {
+            // If user is currently on the installed ROMs view, update the display
+            if (document.getElementById('installed-view').classList.contains('active')) {
+                loadInstalledRoms();
+            }
+        });
+    });
+    window.electronEvents.onRomLaunchFailed((data) => {
+        hideDownloadProgressModal();
+        showNotification(`Launch failed: ${data.error}`, 'error');
+    });
+
+    // Setup navigation between views
     document.querySelectorAll('.nav-item').forEach(item => {
         item.addEventListener('click', () => {
             const viewName = item.dataset.view;
-            console.log(`Navigating to: ${viewName}`);
 
             // Update navigation buttons
             document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
@@ -1544,17 +1618,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             // Display the view - use CSS classes only, don't manipulate style.display
             document.querySelectorAll('.view').forEach(view => {
-                console.log(`Removing active from view: ${view.id}`);
                 view.classList.remove('active');
             });
             const targetView = document.getElementById(`${viewName}-view`);
             if (targetView) {
                 targetView.classList.add('active');
-                console.log(`Added active to view: ${viewName}-view`);
-            } else {
-                console.error(`View element not found: ${viewName}-view`);
-                console.log('Available elements with -view:', document.querySelectorAll('[id*="-view"]').length);
-                document.querySelectorAll('[id*="-view"]').forEach(el => console.log('Element:', el.id));
             }
 
             // Reset platform view when switching views
@@ -1568,10 +1636,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // Always load installed ROMs when switching to this view (will use cache if available)
                 loadInstalledRoms();
             } else if (viewName === 'emulators') {
-                if (!loadedViews.emulators) {
-                    loadEmulatorsConfig();
-                    loadedViews.emulators = true;
-                }
+                loadEmulatorsConfig();
+                loadedViews.emulators = true;
             } else if (viewName === 'settings') {
                 // Ensure settings view shows the appropriate step based on connection status
                 updateSettingsViewState();
@@ -1828,12 +1894,18 @@ async function downloadUpdate() {
 function updateDownloadProgress(percent) {
     const progressFill = document.getElementById('update-progress-fill');
     const progressPercent = document.getElementById('update-progress-percent');
+    const progressText = document.getElementById('update-progress-text');
 
     if (progressFill) {
         progressFill.style.width = `${percent}%`;
     }
     if (progressPercent) {
         progressPercent.textContent = `${Math.round(percent)}%`;
+    }
+    // Display downloaded and total size if possible
+    if (progressText && arguments.length > 1) {
+        const info = arguments[1];
+        progressText.textContent = `${info.downloaded} MB / ${info.total} MB (${Math.round(percent)}%)`;
     }
 }
 
@@ -1934,4 +2006,21 @@ function updateSettingsViewState() {
         document.getElementById('connected-state').classList.remove('active');
     }
 }
+
+// Logout functionality
+document.getElementById('settings-logout-btn').addEventListener('click', async () => {
+    try {
+        const result = await window.electronAPI.config.logout();
+        if (result.success) {
+            // Logout successful - the IPC handler will reload the login page
+            console.log('Logout successful');
+        } else {
+            console.error('Logout failed:', result.error);
+            showResult('Logout failed', 'error');
+        }
+    } catch (error) {
+        console.error('Logout error:', error);
+        showResult('Logout failed', 'error');
+    }
+});
 

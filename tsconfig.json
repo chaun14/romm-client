@@ -1,0 +1,40 @@
+{
+  "compilerOptions": {
+    "module": "CommonJS",
+    "target": "ESNext",
+    "moduleResolution": "node",
+    "strict": true,
+    "noImplicitAny": true,
+    "noImplicitThis": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "removeComments": true,
+    "preserveConstEnums": true,
+    "forceConsistentCasingInFileNames": true,
+    "importHelpers": true,
+    "experimentalDecorators": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "sourceMap": true,
+    "outDir": "out",
+    "rootDir": "src",
+    "paths": {
+      "*": [
+        "./node_modules/*"
+      ]
+    },
+    "types": []
+  },
+  "include": [
+    "src/**/*",
+    "src/renderer/**/*",
+    "old/main.js",
+    "old/emulator-manager.js",
+    "old/save-manager.js"
+, "old/dolphin-emulator.js", "old/emulator.js"  ],
+  "exclude": [
+    "node_modules",
+    "out"
+  ]
+}

@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RomM Client - Login</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary-color: #6366f1;
+            --primary-hover: #4f46e5;
+            --secondary-color: #64748b;
+            --bg-dark: #1e293b;
+            --bg-darker: #0f172a;
+            --bg-light: #334155;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --border-color: #475569;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: var(--bg-darker);
+            color: var(--text-primary);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .login-container {
+            background-color: var(--bg-dark);
+            border-radius: 1rem;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+            padding: 2rem;
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .logo h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--primary-color);
+            margin-bottom: 0.5rem;
+        }
+
+        .logo p {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .login-form {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .form-step {
+            display: none;
+        }
+
+        .form-step.active {
+            display: block;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .form-group label {
+            font-weight: 500;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+        }
+
+        .form-group input {
+            padding: 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            background-color: var(--bg-light);
+            color: var(--text-primary);
+            font-size: 1rem;
+            transition: border-color 0.2s;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+        }
+
+        .form-group input::placeholder {
+            color: var(--text-secondary);
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            flex: 1;
+        }
+
+        .btn-primary {
+            background-color: var(--primary-color);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: var(--primary-hover);
+        }
+
+        .btn-secondary {
+            background-color: var(--bg-light);
+            color: var(--text-primary);
+        }
+
+        .btn-secondary:hover {
+            background-color: var(--border-color);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .result-message {
+            margin-top: 1rem;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            font-size: 0.9rem;
+            text-align: center;
+        }
+
+        .result-message.success {
+            background-color: rgba(16, 185, 129, 0.1);
+            border: 1px solid var(--success);
+            color: var(--success);
+        }
+
+        .result-message.error {
+            background-color: rgba(239, 68, 68, 0.1);
+            border: 1px solid var(--danger);
+            color: var(--danger);
+        }
+
+        .result-message.info {
+            background-color: rgba(245, 158, 11, 0.1);
+            border: 1px solid var(--warning);
+            color: var(--warning);
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--border-color);
+            border-radius: 50%;
+            border-top-color: var(--primary-color);
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 0.5rem;
+        }
+
+        .consent-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .consent-modal-content {
+            background-color: var(--bg-dark);
+            border-radius: 1rem;
+            border: 1px solid var(--border-color);
+            padding: 2rem;
+            max-width: 500px;
+            width: 90%;
+        }
+
+        .consent-modal h2 {
+            margin-bottom: 1rem;
+            color: var(--primary-color);
+        }
+
+        .consent-info {
+            margin-bottom: 2rem;
+            line-height: 1.6;
+        }
+
+        .consent-info p {
+            margin-bottom: 0.5rem;
+            color: var(--text-secondary);
+        }
+
+        .consent-actions {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .version {
+            position: absolute;
+            bottom: 1rem;
+            right: 1rem;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 480px) {
+            .login-container {
+                padding: 1.5rem;
+            }
+
+            .form-actions {
+                flex-direction: column;
+            }
+
+            .consent-actions {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="logo">
+            <h1>🎮 RomM Client</h1>
+            <p>Your ROM Management Solution</p>
+        </div>
+
+        <form class="login-form">
+            <!-- Step 1: Server URL -->
+            <div id="url-step" class="form-step active">
+                <h3 style="text-align: center; margin-bottom: 1rem; color: var(--text-primary);">Connect to RomM Server</h3>
+                <p style="text-align: center; margin-bottom: 1.5rem; color: var(--text-secondary); font-size: 0.9rem;">
+                    Enter the URL of your RomM server to get started.
+                </p>
+
+                <div class="form-group">
+                    <label for="romm-url">RomM Server URL</label>
+                    <input type="url" id="romm-url" placeholder="http://localhost:8000" required>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" id="test-connection-btn" class="btn btn-secondary">Test Connection</button>
+                    <button type="button" id="next-to-auth-btn" class="btn btn-primary" disabled>Next</button>
+                </div>
+
+                <div id="url-result" class="result-message"></div>
+            </div>
+
+            <!-- Step 2: Authentication -->
+            <div id="auth-step" class="form-step">
+                <h3 style="text-align: center; margin-bottom: 1rem; color: var(--text-primary);">Authentication</h3>
+                <p style="text-align: center; margin-bottom: 1.5rem; color: var(--text-secondary); font-size: 0.9rem;">
+                    Choose your authentication method.
+                </p>
+
+                <!-- OAuth Login -->
+                <div class="oauth-section" style="margin-bottom: 2rem;">
+                    <button type="button" id="oauth-login-btn" class="btn btn-primary" style="width: 100%; margin-bottom: 1rem;">
+                        🔐 Login with OAuth
+                    </button>
+                    <p style="text-align: center; color: var(--text-secondary); font-size: 0.8rem; margin-bottom: 1rem;">
+                        or use traditional login
+                    </p>
+                </div>
+
+                <!-- Traditional Login -->
+                <div class="traditional-login">
+                    <div class="form-group">
+                        <label for="username">Username</label>
+                        <input type="text" id="username" placeholder="admin" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <input type="password" id="password" placeholder="••••••••" required>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" id="back-to-url-btn" class="btn btn-secondary">Back</button>
+                        <button type="button" id="login-btn" class="btn btn-primary">Connect</button>
+                    </div>
+                </div>
+
+                <div id="auth-result" class="result-message"></div>
+            </div>
+        </form>
+    </div>
+
+    <!-- Consent Modal -->
+    <div id="consent-modal" class="consent-modal" style="display: none;">
+        <div class="consent-modal-content">
+            <h2>🔒 Security Notice</h2>
+            <p style="margin-bottom: 1rem; color: var(--text-secondary);">
+                Choose how to handle your authentication data.
+            </p>
+
+            <div class="consent-info">
+                <p><strong>Session Only:</strong> You will have to re-authenticate after a few weeks (recommended)</p>
+                <p><strong>Save Credentials:</strong> Store username and password in plain text (less secure)</p>
+            </div>
+
+            <div class="consent-actions">
+                <button id="consent-session-only-btn" class="btn btn-primary">Use Session Only</button>
+                <button id="consent-allow-btn" class="btn btn-secondary">Save Credentials</button>
+                <button id="consent-cancel-btn" class="btn" style="background: var(--danger); color: white;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="version" id="version">v0.0.0</div>
+
+    <script>
+        let currentStep = 'url';
+        let serverUrl = '';
+        let consentChoice = null;
+        let connectionTested = false;
+        let connectionSuccessful = false;
+        let savedUrl = '';
+        let oauthPopup = null;
+        let serverConfig = null;
+
+        async function init() {
+            const versionResults = await window.electronAPI.config.getVersion();
+            document.getElementById('version').innerText = `v${versionResults.data}`;
+
+            // Load saved settings if any
+            await loadSavedSettings();
+
+            // Setup event listeners
+            setupEventListeners();
+
+            // For saved URLs, we still require testing the connection before enabling Next
+            // Don't auto-enable the button even for saved URLs
+        }
+
+        async function loadSavedSettings() {
+            try {
+                const baseUrl = await window.electronAPI.config.getBaseUrl();
+                if (baseUrl) {
+                    // Clean the URL by removing trailing slash
+                    const cleanUrl = baseUrl.replace(/\/$/, '');
+                    document.getElementById('romm-url').value = cleanUrl;
+                    serverUrl = cleanUrl;
+                    savedUrl = cleanUrl;
+                    // For saved URLs, we should test connection automatically
+                    await testConnection();
+                }
+                // No auto-login logic here - backend handles authentication at startup
+            } catch (error) {
+                console.error('Error loading saved settings:', error);
+                // Stay on URL step
+            }
+        }
+
+        function setupEventListeners() {
+            // URL step
+            document.getElementById('romm-url').addEventListener('input', validateUrl);
+            document.getElementById('test-connection-btn').addEventListener('click', testConnection);
+            document.getElementById('next-to-auth-btn').addEventListener('click', handleNextFromUrl);
+
+            // Auth step
+            document.getElementById('back-to-url-btn').addEventListener('click', () => switchStep('url'));
+            document.getElementById('login-btn').addEventListener('click', handleLogin);
+            document.getElementById('oauth-login-btn').addEventListener('click', handleOAuthLogin);
+
+            // Consent modal
+            document.getElementById('consent-session-only-btn').addEventListener('click', () => handleConsent(false));
+            document.getElementById('consent-allow-btn').addEventListener('click', () => handleConsent(true));
+            document.getElementById('consent-cancel-btn').addEventListener('click', () => {
+                hideConsentModal();
+                enableLoginForm();
+            });
+        }
+
+        function validateUrl() {
+            const url = document.getElementById('romm-url').value.trim();
+            const nextBtn = document.getElementById('next-to-auth-btn');
+
+            try {
+                new URL(url);
+                // Clean the URL by removing trailing slash
+                serverUrl = url.replace(/\/$/, '');
+                // Reset connection test status for any URL change
+                connectionTested = false;
+                connectionSuccessful = false;
+                // Only enable Next button if URL is valid AND connection has been tested successfully
+                nextBtn.disabled = !(connectionTested && connectionSuccessful);
+            } catch {
+                serverUrl = '';
+                connectionTested = false;
+                connectionSuccessful = false;
+                nextBtn.disabled = true;
+            }
+        }
+
+        async function testConnection() {
+            if (!serverUrl) return;
+
+            const testBtn = document.getElementById('test-connection-btn');
+            const originalText = testBtn.innerHTML;
+
+            testBtn.innerHTML = '<span class="loading-spinner"></span>Testing...';
+            testBtn.disabled = true;
+
+            try {
+                // Clean the URL by removing trailing slash
+                const cleanUrl = serverUrl.replace(/\/$/, '');
+                await window.electronAPI.config.setRommUrl(cleanUrl);
+                const result = await window.electronAPI.config.testConnection();
+
+                console.log('Connection test result:', result);
+
+                connectionTested = true;
+                if (result.success) {
+                    connectionSuccessful = true;
+                    serverConfig = result.data; // Store server configuration
+                    showMessage('url-result', '✅ Connection successful!', 'success');
+                    document.getElementById('next-to-auth-btn').disabled = false;
+                    // Update auth display in case we're already on auth step
+                    updateAuthStepDisplay();
+                } else {
+                    connectionSuccessful = false;
+                    serverConfig = null;
+                    showMessage('url-result', `❌ ${result.error || 'Connection failed'}`, 'error');
+                    document.getElementById('next-to-auth-btn').disabled = true;
+                }
+            } catch (error) {
+                connectionTested = true;
+                connectionSuccessful = false;
+                showMessage('url-result', `❌ ${error.message || 'Connection failed'}`, 'error');
+                document.getElementById('next-to-auth-btn').disabled = true;
+            } finally {
+                testBtn.innerHTML = originalText;
+                testBtn.disabled = false;
+            }
+        }
+
+        async function handleLogin() {
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value.trim();
+
+            if (!username || !password) {
+                showMessage('auth-result', 'Please enter both username and password', 'error');
+                return;
+            }
+
+            disableLoginForm();
+            showMessage('auth-result', 'Authenticating...', 'info');
+
+            try {
+                // First ask for consent about saving credentials
+                showConsentModal();
+
+                // Wait for consent choice
+                await waitForConsent();
+
+                // Proceed with authentication
+                const result = await window.electronAPI.config.setCredentials(username, password, consentChoice);
+
+                if (result.success) {
+                    showMessage('auth-result', '✅ Login successful! Starting application...', 'success');
+
+                    // Notify main process that login is complete
+                    setTimeout(() => {
+                        window.electronAPI.loginComplete();
+                    }, 1000);
+                } else {
+                    showMessage('auth-result', `❌ ${result.error || 'Login failed'}`, 'error');
+                    enableLoginForm();
+                }
+            } catch (error) {
+                showMessage('auth-result', `❌ ${error.message || 'Login failed'}`, 'error');
+                enableLoginForm();
+            }
+        }
+
+        async function attemptAutoLogin() {
+            // This function is no longer used - auto-login is handled by backend at startup
+            throw new Error('Auto-login should be handled by backend');
+        }
+
+        async function attemptAutoLoginWithSession() {
+            // This function is no longer used - auto-login is handled by backend at startup
+            throw new Error('Auto-login should be handled by backend');
+        }
+
+        function switchStep(step) {
+            document.getElementById(`${currentStep}-step`).classList.remove('active');
+            document.getElementById(`${step}-step`).classList.add('active');
+            currentStep = step;
+
+            // Update auth step display when switching to auth
+            if (step === 'auth') {
+                updateAuthStepDisplay();
+            }
+
+            // Clear messages when switching
+            clearMessages();
+        }
+
+        function showMessage(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.className = `result-message ${type}`;
+        }
+
+        function clearMessages() {
+            document.querySelectorAll('.result-message').forEach(el => {
+                el.textContent = '';
+                el.className = 'result-message';
+            });
+        }
+
+        function disableLoginForm() {
+            document.getElementById('login-btn').disabled = true;
+            document.getElementById('login-btn').innerHTML = '<span class="loading-spinner"></span>Connecting...';
+            document.getElementById('back-to-url-btn').disabled = true;
+        }
+
+        function enableLoginForm() {
+            document.getElementById('login-btn').disabled = false;
+            document.getElementById('login-btn').innerHTML = 'Connect';
+            document.getElementById('back-to-url-btn').disabled = false;
+        }
+
+        function showConsentModal() {
+            document.getElementById('consent-modal').style.display = 'flex';
+        }
+
+        function hideConsentModal() {
+            document.getElementById('consent-modal').style.display = 'none';
+        }
+
+        function waitForConsent() {
+            return new Promise((resolve) => {
+                const handleConsentChoice = (choice) => {
+                    consentChoice = choice;
+                    hideConsentModal();
+                    resolve();
+                };
+
+                document.getElementById('consent-session-only-btn').onclick = () => handleConsentChoice(false);
+                document.getElementById('consent-allow-btn').onclick = () => handleConsentChoice(true);
+                document.getElementById('consent-cancel-btn').onclick = () => {
+                    hideConsentModal();
+                    enableLoginForm();
+                    throw new Error('Login cancelled');
+                };
+            });
+        }
+
+        function handleOAuthLogin() {
+            // Clean the URL by removing trailing slash
+            const cleanUrl = serverUrl.replace(/\/$/, '');
+
+            if (!cleanUrl) {
+                showMessage('auth-result', 'Server URL not configured', 'error');
+                return;
+            }
+
+            showMessage('auth-result', 'Starting OAuth authentication...', 'info');
+
+            // Ask main process to start OAuth flow
+            window.electronAPI.config.startOAuth(cleanUrl).then(result => {
+                if (result.success) {
+                    showMessage('auth-result', '✅ OAuth authentication successful! Starting application...', 'success');
+
+                    // Notify main process that login is complete
+                    setTimeout(() => {
+                        window.electronAPI.loginComplete();
+                    }, 1000);
+                } else {
+                    showMessage('auth-result', `❌ ${result.error || 'OAuth authentication failed'}`, 'error');
+                }
+            }).catch(error => {
+                showMessage('auth-result', `❌ ${error.message || 'OAuth authentication failed'}`, 'error');
+            });
+        }
+
+
+
+        function updateAuthStepDisplay() {
+            const oauthSection = document.querySelector('.oauth-section');
+            const traditionalLogin = document.querySelector('.traditional-login');
+            const oauthBtn = document.getElementById('oauth-login-btn');
+
+            if (!serverConfig) {
+                // No server config available, show both options but disable OAuth
+                oauthSection.style.display = 'block';
+                traditionalLogin.style.display = 'block';
+                oauthBtn.disabled = true;
+                oauthBtn.style.opacity = '0.5';
+                return;
+            }
+
+            const disableUserPassLogin = serverConfig.FRONTEND?.DISABLE_USERPASS_LOGIN;
+            const oidcEnabled = serverConfig.OIDC?.ENABLED;
+
+            if (disableUserPassLogin && oidcEnabled) {
+                // User/pass login is disabled and OIDC is enabled - only show OAuth
+                oauthSection.style.display = 'block';
+                traditionalLogin.style.display = 'none';
+                oauthBtn.disabled = false;
+                oauthBtn.style.opacity = '1';
+            } else if (oidcEnabled) {
+                // Both OAuth and traditional login available
+                oauthSection.style.display = 'block';
+                traditionalLogin.style.display = 'block';
+                oauthBtn.disabled = false;
+                oauthBtn.style.opacity = '1';
+            } else {
+                // Only traditional login available
+                oauthSection.style.display = 'none';
+                traditionalLogin.style.display = 'block';
+            }
+        }
+
+        function handleNextFromUrl() {
+            // Clean the URL by removing trailing slash before proceeding
+            serverUrl = serverUrl.replace(/\/$/, '');
+
+            // Check if OIDC is enabled and user/pass login is disabled
+            if (serverConfig && serverConfig.OIDC?.ENABLED && serverConfig.FRONTEND?.DISABLE_USERPASS_LOGIN) {
+                // OIDC is enabled and traditional login is disabled - go directly to OAuth
+                handleOAuthLogin();
+            } else {
+                // Traditional flow - go to auth step
+                switchStep('auth');
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>
