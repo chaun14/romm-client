@@ -97,7 +97,7 @@ export class RommClient extends BrowserWindow {
         console.log("Checking RomM API connection heartbeat...");
         let heartbeat = await this.rommApi.testConnection();
 
-        if (!heartbeat) {
+        if (!heartbeat || !heartbeat.success) {
           console.error("RomM API is not responding");
 
           await this.webContents.send("init-status", { step: "url", status: "error", message: "RomM is not responding" });

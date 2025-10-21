@@ -339,6 +339,9 @@
         let currentStep = 'url';
         let serverUrl = '';
         let consentChoice = null;
+        let connectionTested = false;
+        let connectionSuccessful = false;
+        let savedUrl = '';
 
         async function init() {
             const versionResults = await window.electronAPI.config.getVersion();
@@ -349,6 +352,9 @@
 
             // Setup event listeners
             setupEventListeners();
+
+            // For saved URLs, we still require testing the connection before enabling Next
+            // Don't auto-enable the button even for saved URLs
         }
 
         async function loadSavedSettings() {
@@ -357,7 +363,9 @@
                 if (baseUrl) {
                     document.getElementById('romm-url').value = baseUrl;
                     serverUrl = baseUrl;
-                    document.getElementById('next-to-auth-btn').disabled = false;
+                    savedUrl = baseUrl;
+                    // Don't auto-enable Next button - require connection test even for saved URLs
+                    document.getElementById('next-to-auth-btn').disabled = true;
                 }
 
                 // First try session-based authentication if available
@@ -404,9 +412,15 @@
             try {
                 new URL(url);
                 serverUrl = url;
-                nextBtn.disabled = false;
+                // Reset connection test status for any URL change
+                connectionTested = false;
+                connectionSuccessful = false;
+                // Only enable Next button if URL is valid AND connection has been tested successfully
+                nextBtn.disabled = !(connectionTested && connectionSuccessful);
             } catch {
                 serverUrl = '';
+                connectionTested = false;
+                connectionSuccessful = false;
                 nextBtn.disabled = true;
             }
         }
@@ -424,14 +438,21 @@
                 await window.electronAPI.config.setRommUrl(serverUrl);
                 const result = await window.electronAPI.config.testConnection();
 
+                connectionTested = true;
                 if (result.success) {
+                    connectionSuccessful = true;
                     showMessage('url-result', '✅ Connection successful!', 'success');
                     document.getElementById('next-to-auth-btn').disabled = false;
                 } else {
+                    connectionSuccessful = false;
                     showMessage('url-result', `❌ ${result.error || 'Connection failed'}`, 'error');
+                    document.getElementById('next-to-auth-btn').disabled = true;
                 }
             } catch (error) {
+                connectionTested = true;
+                connectionSuccessful = false;
                 showMessage('url-result', `❌ ${error.message || 'Connection failed'}`, 'error');
+                document.getElementById('next-to-auth-btn').disabled = true;
             } finally {
                 testBtn.innerHTML = originalText;
                 testBtn.disabled = false;
