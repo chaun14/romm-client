@@ -1050,10 +1050,10 @@ async function displayPlatforms(platforms) {
     const baseUrl = await window.electronAPI.config.getBaseUrl();
 
     list.innerHTML = platformsWithRoms.map(platform => {
-        // Use igdb_slug if available (for identified platforms), otherwise use slug
-        // For unidentified platforms, no image will be available
-        const platformSlug = platform.igdb_slug || (platform.is_identified ? platform.slug : null);
-        const platformImage = platformSlug ? `${baseUrl}/assets/platforms/${platformSlug}.svg` : '';
+
+        const platformSlug = platform.slug || (platform.is_identified ? platform.fs_slug : null);
+        const platformImageSvg = platformSlug ? `${baseUrl}/assets/platforms/${platformSlug}.svg` : '';
+        const platformImageIco = platformSlug ? `${baseUrl}/assets/platforms/${platformSlug}.ico` : '';
 
         // Check if platform is supported and configured
         const platformKey = platform.slug || platform.name.toLowerCase().replace(/\s+/g, '-');
@@ -1083,12 +1083,18 @@ async function displayPlatforms(platforms) {
 
         return `
       <div class="platform-card ${platformDisabled ? 'disabled' : ''}" data-platform-id="${platform.id}" ${platformTitle}>
-        ${platformImage ? `<img src="${platformImage}" alt="${platform.display_name || platform.name}" onerror='this.style.display="none"' />` : '<span class="platform-emoji">🎮</span>'}
+        <div class="platform-image-container" data-svg="${platformImageSvg}" data-ico="${platformImageIco}">
+          <img src="${platformImageSvg}" alt="${platform.display_name || platform.name}" class="platform-image platform-image-svg" />
+          <img src="${platformImageIco}" alt="${platform.display_name || platform.name}" class="platform-image platform-image-ico" style="display: none;" />
+        </div>
         <h3>${platform.display_name || platform.name}</h3>
         <p>${platform.rom_count || 0} ROM${platform.rom_count > 1 ? 's' : ''}</p>
       </div>
     `;
     }).join('');
+
+    // Setup platform image fallback
+    setupPlatformImageFallback();
 
     list.querySelectorAll('.platform-card:not([disabled])').forEach(card => {
         card.addEventListener('click', async () => {
@@ -1098,6 +1104,46 @@ async function displayPlatforms(platforms) {
             // Load ROMs for this platform
             await loadRomsForPlatform(platformId, platform);
         });
+    });
+}
+
+function setupPlatformImageFallback() {
+    // Handle platform image fallback after DOM is updated
+    document.querySelectorAll('.platform-image-container').forEach(container => {
+        const svgImg = container.querySelector('.platform-image-svg');
+        const icoImg = container.querySelector('.platform-image-ico');
+
+        if (svgImg && icoImg) {
+            // Check if SVG loads successfully
+            svgImg.addEventListener('error', function () {
+                //    console.log('SVG failed to load, showing ICO fallback:', this.src);
+                this.style.display = 'none';
+                icoImg.style.display = 'block';
+            });
+
+            svgImg.addEventListener('load', function () {
+                //  console.log('SVG loaded successfully:', this.src);
+                // SVG loaded, keep it visible and hide ICO
+                this.style.display = 'block';
+                icoImg.style.display = 'none';
+            });
+
+            // Handle ICO fallback if it also fails
+            icoImg.addEventListener('error', function () {
+                //   console.log('ICO also failed to load, showing emoji fallback:', this.src);
+                container.innerHTML = '<span class="platform-emoji">🎮</span>';
+            });
+
+            // If SVG is already cached/loaded, the load event might not fire
+            // So we also check after a short delay
+            setTimeout(() => {
+                if (svgImg.complete && svgImg.naturalHeight === 0) {
+                    //   console.log('SVG failed to load (cached), showing ICO fallback:', svgImg.src);
+                    svgImg.style.display = 'none';
+                    icoImg.style.display = 'block';
+                }
+            }, 100);
+        }
     });
 }
 
