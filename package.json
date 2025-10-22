@@ -1,6 +1,6 @@
 {
   "name": "romm-client",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Electron app that plugs into the RomM API to provide a desktop experience",
   "main": "./out/main.js",
   "scripts": {
