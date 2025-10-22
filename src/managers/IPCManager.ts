@@ -319,6 +319,11 @@ export class IPCManager {
       }
     });
 
+    ipcMain.handle("roms:noCachedMode", async () => {
+      console.log("[IPC]" + `Checking if ROM manager is in no-cache mode`);
+      return this.rommClient.romManager?.noCacheMode || false;
+    });
+
     // Emulator Configuration
     ipcMain.handle("emulator:getConfigs", async () => {
       console.log("[IPC]" + `Fetching emulator configs`);

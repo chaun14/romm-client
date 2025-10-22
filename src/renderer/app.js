@@ -938,10 +938,12 @@ async function preloadData() {
         if (remoteRomsResult) {
             remoteRoms = remoteRomsResult;
             console.log(`Loaded ${remoteRoms.length} remote ROMs`);
-            if (remoteRoms.length > 0) {
-                isLibraryFullyCached = true; // Mark all ROMs as loaded
-            }
         }
+
+        // load caching mode
+        const noCacheMode = await window.electronAPI.roms.getNoCacheMode();
+        isLibraryFullyCached = !noCacheMode;
+        console.log(`Library fully cached mode: ${isLibraryFullyCached}`);
 
         // Load all local ROMs
         const localRomsResult = await window.electronAPI.roms.fetchLocal();

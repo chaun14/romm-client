@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
         getByPlatform: (platform, limit = null, offset = 0) => ipcRenderer.invoke('roms:get-by-platform', { platform, limit, offset }),
         launch: (rom, emulatorPath) =>
             ipcRenderer.invoke('roms:launch', { rom, emulatorPath }),
+        getNoCacheMode: () => ipcRenderer.invoke('roms:noCachedMode')
     },
 
     // Emulators

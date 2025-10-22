@@ -13,6 +13,7 @@ export class RomManager {
   private roms: Rom[] = [];
   private rommClient: RommClient;
   private localRoms: LocalRom[] = [];
+  public noCacheMode: boolean = false;
 
   constructor(rommClient: RommClient) {
     this.rommClient = rommClient;

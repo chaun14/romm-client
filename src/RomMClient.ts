@@ -148,6 +148,7 @@ export class RommClient extends BrowserWindow {
 
             this.webContents.send("init-status", { step: "cache", status: "success", message: `Fetched ${romCount} ROMs successfully` });
           } else {
+            this.romManager.noCacheMode = true;
             this.webContents.send("init-status", { step: "cache", status: "warning", message: `Too many roms for caching: (${remoteRomCount})` });
           }
 
