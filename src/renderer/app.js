@@ -575,6 +575,17 @@ window.addEventListener('click', (e) => {
     }
 });
 
+// Modal close button handlers
+document.addEventListener('click', (e) => {
+    if (e.target.classList.contains('modal-close')) {
+        const modal = e.target.closest('.modal');
+        if (modal) {
+            modal.classList.remove('show');
+
+        }
+    }
+});
+
 // Save choice modal cancel button
 document.getElementById('save-choice-cancel').addEventListener('click', () => {
     document.getElementById('save-choice-modal').classList.remove('show');
