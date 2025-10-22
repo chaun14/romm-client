@@ -416,7 +416,7 @@ async function displayRoms(roms) {
         }
 
         return `
-      <div class="rom-card ${rom.isCached ? 'cached' : ''}" data-rom-id="${rom.id}">
+      <div class="rom-card ${rom.isCached ? 'cached' : ''}" data-rom-id="${rom.id}" title="${rom.fs_name || rom.name}">
         <div class="rom-cover">
           ${coverUrl ? `<img src="${coverUrl}" alt="${rom.name}" onerror="this.parentElement.innerHTML='🎮'">` : '🎮'}
           ${statusIcons.length > 0 ? `<div class="rom-status-icons">${statusIcons.join('')}</div>` : ''}
