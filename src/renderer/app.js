@@ -229,10 +229,12 @@ function updateConnectionStatus(connected) {
 }
 
 // Search ROMs within current platform
-document.getElementById('search-btn').addEventListener('click', searchRoms);
+// Wrap handlers so the event object isn't forwarded as the `page` parameter
+document.getElementById('search-btn').addEventListener('click', () => searchRoms(1));
 document.getElementById('search-input').addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
-        searchRoms();
+        e.preventDefault();
+        searchRoms(1);
     }
 });
 
