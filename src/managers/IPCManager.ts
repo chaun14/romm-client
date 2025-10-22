@@ -303,13 +303,20 @@ export class IPCManager {
       else throw new Error("RomM API is not initialized");
     });
 
-    ipcMain.handle("roms:get-by-platform", async (event, platform) => {
-      console.log("[IPC]" + `Fetching ROMs for platform: ${platform}`);
-      let platformRoms;
-      if (this.rommClient.romManager) platformRoms = this.rommClient.romManager.getRoms().filter((rom) => rom.platform_id === platform || rom.platform_slug === platform);
-      else throw new Error("RomM API is not initialized");
-
-      return { success: true, data: platformRoms };
+    ipcMain.handle("roms:get-by-platform", async (event, { platform, limit, offset }) => {
+      console.log("[IPC]" + `Fetching ROMs for platform: ${platform}, limit: ${limit}, offset: ${offset}`);
+      if (this.rommClient.rommApi) {
+        const options: any = {};
+        if (limit !== null && limit !== undefined) {
+          options.limit = limit;
+        }
+        if (offset !== null && offset !== undefined) {
+          options.offset = offset;
+        }
+        return this.rommClient.rommApi.getRomsByPlatform(platform, options);
+      } else {
+        throw new Error("RomM API is not initialized");
+      }
     });
 
     // Emulator Configuration

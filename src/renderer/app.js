@@ -4,6 +4,7 @@ let currentPlatforms = [];
 let selectedRom = null;
 let currentUser = null;
 let currentPlatformId = null;
+let isLibraryFullyCached = false;
 let remoteRoms = [];
 let localRoms = [];
 
@@ -266,6 +267,8 @@ async function searchRoms() {
 
 
 async function displayRoms(roms) {
+    console.log(`Displaying ${roms.length} ROMs for platform ID ${roms.length > 0 ? roms[0].platform_id || roms[0].platform_slug : 'N/A'}`);
+
     const grid = document.getElementById('roms-grid');
 
     if (!roms || roms.length === 0) {
@@ -291,13 +294,16 @@ async function displayRoms(roms) {
         ]);
 
         // Check if platform is supported and configured
-        const platform = rom.platform_slug || rom.platform;
+        const platform = rom.platform_slug || rom.platform_fs_slug;
         let isPlatformSupported = false;
         let isEmulatorConfigured = false;
         let emulatorMessage = '';
 
         // Find emulator for this platform
         for (const [emulatorKey, emulator] of Object.entries(supportedEmulators)) {
+            console.log(`Checking emulator ${emulatorKey} for platform ${platform}`);
+            console.log(`Emulator platforms: ${emulator.platforms.join(', ')}`);
+
             if (emulator.platforms.includes(platform)) {
                 isPlatformSupported = true;
                 if (emulatorConfigs[emulatorKey] && emulatorConfigs[emulatorKey].path) {
@@ -891,6 +897,12 @@ document.getElementById('refresh-platforms-btn').addEventListener('click', () =>
     loadPlatforms();
 });
 
+// Global variables for ROMs pagination
+let currentPage = 1;
+let totalPages = 1;
+let itemsPerPage = 50; // Nombre de ROMs par page
+let totalRoms = 0;
+
 // Global variables for installed ROMs filtering
 let allInstalledRoms = [];
 let installedPlatforms = [];
@@ -926,6 +938,9 @@ async function preloadData() {
         if (remoteRomsResult) {
             remoteRoms = remoteRomsResult;
             console.log(`Loaded ${remoteRoms.length} remote ROMs`);
+            if (remoteRoms.length > 0) {
+                isLibraryFullyCached = true; // Mark all ROMs as loaded
+            }
         }
 
         // Load all local ROMs
@@ -1043,7 +1058,6 @@ async function displayPlatforms(platforms) {
 
     const emulatorConfigs = configsResult.success ? configsResult.data : {};
     const supportedEmulators = supportedResult.success ? supportedResult.data : {};
-
 
 
     // Get base URL from API
@@ -1337,8 +1351,9 @@ function showPlatformsList() {
 }
 
 // Show ROMs for a platform
-async function loadRomsForPlatform(platformId, platform) {
+async function loadRomsForPlatform(platformId, platform, page = 1) {
     currentPlatformId = platformId;
+    currentPage = page;
 
     // Update UI
     document.getElementById('platform-title').textContent = platform?.display_name || platform?.name || 'ROMs';
@@ -1351,11 +1366,32 @@ async function loadRomsForPlatform(platformId, platform) {
     // Clear cache status when loading new platform
     clearCacheStatus();
 
+    // Calculate offset from page
+    const offset = (page - 1) * itemsPerPage;
+
     // Filter ROMs from preloaded remote ROMs
-    const platformRoms = remoteRoms.filter(rom => rom.platform_id === platformId || rom.platform_slug === platformId);
-    currentRoms = platformRoms;
+    if (isLibraryFullyCached) {
+        const platformRoms = remoteRoms.filter(rom => rom.platform_id === platformId || rom.platform_slug === platformId);
+        currentRoms = platformRoms.slice(offset, offset + itemsPerPage);
+        totalRoms = platformRoms.length;
+        totalPages = Math.ceil(totalRoms / itemsPerPage);
+    } else {
+        const platformRoms = await window.electronAPI.roms.getByPlatform(platformId, itemsPerPage, offset);
+        console.log(JSON.stringify(platformRoms));
+        if (platformRoms && platformRoms.success && platformRoms.data) {
+            currentRoms = platformRoms.data.items || [];
+            totalRoms = platformRoms.data.total || 0;
+            totalPages = Math.ceil(totalRoms / itemsPerPage);
+            console.log(`Loaded ${currentRoms.length} ROMs for platform ID ${platformId} from search API (page: ${page}/${totalPages}, total: ${totalRoms})`);
+        } else {
+            currentRoms = [];
+            totalRoms = 0;
+            totalPages = 1;
+        }
+    }
 
     displayRoms(currentRoms);
+    displayPaginationControls();
 }
 
 // Back to platforms button
@@ -2022,4 +2058,62 @@ document.getElementById('settings-logout-btn').addEventListener('click', async (
         showResult('Logout failed', 'error');
     }
 });
+
+function displayPaginationControls() {
+    const paginationContainer = document.getElementById('pagination-controls');
+    if (!paginationContainer) {
+        console.warn('Pagination container not found');
+        return;
+    }
+
+    // Hide pagination if only one page or no ROMs
+    if (totalPages <= 1) {
+        paginationContainer.innerHTML = '';
+        return;
+    }
+
+    // Calculate page range to display (max 5 pages)
+    const maxVisiblePages = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+
+    // Adjust start page if we're near the end
+    if (endPage - startPage + 1 < maxVisiblePages) {
+        startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+
+    // Create pagination HTML
+    let paginationHtml = '<div class="pagination-controls">';
+
+    // Previous button
+    const prevDisabled = currentPage <= 1 ? 'disabled' : '';
+    paginationHtml += `<button class="btn-pagination prev-btn" ${prevDisabled} data-page="${currentPage - 1}">‹ Previous</button>`;
+
+    // Page numbers
+    for (let i = startPage; i <= endPage; i++) {
+        const activeClass = i === currentPage ? 'active' : '';
+        paginationHtml += `<button class="btn-pagination page-btn ${activeClass}" data-page="${i}">${i}</button>`;
+    }
+
+    // Next button
+    const nextDisabled = currentPage >= totalPages ? 'disabled' : '';
+    paginationHtml += `<button class="btn-pagination next-btn" ${nextDisabled} data-page="${currentPage + 1}">Next ›</button>`;
+
+    // Page info
+    paginationHtml += `<div class="pagination-info">Page ${currentPage} of ${totalPages} (${totalRoms} ROMs)</div>`;
+
+    paginationHtml += '</div>';
+
+    paginationContainer.innerHTML = paginationHtml;
+
+    // Add event listeners
+    paginationContainer.querySelectorAll('.btn-pagination:not([disabled])').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            const page = parseInt(e.target.dataset.page);
+            if (page && page >= 1 && page <= totalPages && page !== currentPage) {
+                await loadRomsForPlatform(currentPlatformId, currentPlatforms.find(p => p.id === currentPlatformId), page);
+            }
+        });
+    });
+}
 
