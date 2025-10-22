@@ -54,7 +54,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     roms: {
         fetchAll: () => ipcRenderer.invoke('roms:fetch-all'),
         fetchLocal: () => ipcRenderer.invoke('roms:fetch-local'),
-        search: (query) => ipcRenderer.invoke('roms:search', query),
+        search: (query, platformId, limit, offset) => ipcRenderer.invoke('roms:search', query, platformId, limit, offset),
         getByPlatform: (platform, limit = null, offset = 0) => ipcRenderer.invoke('roms:get-by-platform', { platform, limit, offset }),
         launch: (rom, emulatorPath) =>
             ipcRenderer.invoke('roms:launch', { rom, emulatorPath }),

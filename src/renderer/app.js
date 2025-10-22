@@ -236,32 +236,75 @@ document.getElementById('search-input').addEventListener('keypress', (e) => {
     }
 });
 
-async function searchRoms() {
-    const query = document.getElementById('search-input').value;
+async function searchRoms(page = 1) {
+    const query = document.getElementById('search-input').value.trim();
+    currentSearchQuery = query;
 
-    if (!query || !currentPlatformId) {
-        // Reload current platform ROMs
-        if (currentPlatformId) {
-            const platform = currentPlatforms.find(p => p.id === currentPlatformId);
-            await loadRomsForPlatform(currentPlatformId, platform);
-        }
+    if (!currentPlatformId) {
         return;
     }
 
-    // Filter current ROMs by search query
-    const filteredRoms = currentRoms.filter(rom => {
-        const searchText = query.toLowerCase();
-        return (rom.name?.toLowerCase().includes(searchText) ||
-            rom.fs_name?.toLowerCase().includes(searchText));
-    });
+    if (!query) {
+        // Clear search - reload current platform
+        currentSearchQuery = '';
+        isSearchMode = false;
+        const platform = currentPlatforms.find(p => p.id === currentPlatformId);
+        await loadRomsForPlatform(currentPlatformId, platform, 1);
+        return;
+    }
 
-    // Clear cache status for filtered ROMs to force refresh
-    filteredRoms.forEach(rom => {
-        romCacheStatus.delete(rom.id);
-        romSaveStatus.delete(rom.id);
-    });
+    // Set search mode
+    isSearchMode = true;
+    currentPage = page;
 
-    displayRoms(filteredRoms);
+    // Show loading state
+    const grid = document.getElementById('roms-grid');
+    grid.innerHTML = '<p class="empty-state">Searching...</p>';
+
+    try {
+        // Calculate offset for pagination
+        const offset = (page - 1) * itemsPerPage;
+
+        // Use RomM API search with platform filtering
+        const searchResult = await window.electronAPI.roms.search(query, currentPlatformId, itemsPerPage, offset);
+
+        if (searchResult && searchResult.success && searchResult.data) {
+            // Update pagination for search results
+            totalRoms = searchResult.data.total || 0;
+            totalPages = Math.ceil(totalRoms / itemsPerPage);
+
+            // Get current page of results
+            currentRoms = searchResult.data.items || [];
+
+            // Clear cache status for filtered ROMs to force refresh
+            currentRoms.forEach(rom => {
+                romCacheStatus.delete(rom.id);
+                romSaveStatus.delete(rom.id);
+            });
+
+            displayRoms(currentRoms);
+            displayPaginationControls();
+
+        } else {
+            // Handle search error or no results
+            currentRoms = [];
+            totalRoms = 0;
+            totalPages = 1;
+            currentPage = 1;
+
+            displayRoms(currentRoms);
+            displayPaginationControls();
+
+            if (searchResult && !searchResult.success) {
+                showNotification(`Search failed: ${searchResult.error}`, 'error');
+            }
+        }
+
+    } catch (error) {
+        console.error('Search error:', error);
+        grid.innerHTML = '<p class="empty-state">Search failed. Please try again.</p>';
+        showNotification('Search failed', 'error');
+    }
 }
 
 
@@ -914,6 +957,11 @@ let totalPages = 1;
 let itemsPerPage = 50; // Nombre de ROMs par page
 let totalRoms = 0;
 
+// Global variables for platform ROMs search
+let currentSearchQuery = '';
+let allPlatformRoms = []; // All ROMs for current platform (when cached)
+let isSearchMode = false; // Flag to track if we're in search mode
+
 // Global variables for installed ROMs filtering
 let allInstalledRoms = [];
 let installedPlatforms = [];
@@ -1367,6 +1415,8 @@ function showPlatformsList() {
 async function loadRomsForPlatform(platformId, platform, page = 1) {
     currentPlatformId = platformId;
     currentPage = page;
+    currentSearchQuery = ''; // Reset search when loading platform
+    isSearchMode = false; // Reset search mode when loading platform
 
     // Update UI
     document.getElementById('platform-title').textContent = platform?.display_name || platform?.name || 'ROMs';
@@ -1375,6 +1425,9 @@ async function loadRomsForPlatform(platformId, platform, page = 1) {
     document.getElementById('rom-search-bar').style.display = 'flex';
     document.getElementById('back-to-platforms-btn').style.display = 'block';
     document.getElementById('refresh-platforms-btn').style.display = 'none';
+
+    // Clear search input
+    document.getElementById('search-input').value = '';
 
     // Clear cache status when loading new platform
     clearCacheStatus();
@@ -1385,6 +1438,7 @@ async function loadRomsForPlatform(platformId, platform, page = 1) {
     // Filter ROMs from preloaded remote ROMs
     if (isLibraryFullyCached) {
         const platformRoms = remoteRoms.filter(rom => rom.platform_id === platformId || rom.platform_slug === platformId);
+        allPlatformRoms = platformRoms; // Store all ROMs for search functionality
         currentRoms = platformRoms.slice(offset, offset + itemsPerPage);
         totalRoms = platformRoms.length;
         totalPages = Math.ceil(totalRoms / itemsPerPage);
@@ -2130,7 +2184,13 @@ function displayPaginationControls() {
         btn.addEventListener('click', async (e) => {
             const page = parseInt(e.target.dataset.page);
             if (page && page >= 1 && page <= totalPages && page !== currentPage) {
-                await loadRomsForPlatform(currentPlatformId, currentPlatforms.find(p => p.id === currentPlatformId), page);
+                if (isSearchMode && currentSearchQuery) {
+                    // In search mode, call search function with page
+                    await searchRoms(page);
+                } else {
+                    // Normal platform browsing
+                    await loadRomsForPlatform(currentPlatformId, currentPlatforms.find(p => p.id === currentPlatformId), page);
+                }
             }
         });
     });

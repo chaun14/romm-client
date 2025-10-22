@@ -271,14 +271,23 @@ export class RommApi {
   }
 
   async fetchRoms(options: RomOptions & { search?: string; platform_id?: number } = {}): Promise<ApiResponse<RomsResponse>> {
-    const params = {
+    const params: any = {
       limit: options.limit || 15,
       offset: options.offset || 0,
       order_by: options.orderBy || "id",
       order_dir: options.orderDir || "desc",
       with_char_index: false,
-      ...options,
     };
+
+    // Handle search parameter - RomM expects 'search_term' not 'search'
+    if (options.search) {
+      params.search_term = options.search;
+    }
+
+    // Add other options
+    if (options.platform_id !== undefined) params.platform_id = options.platform_id;
+    if (options.groupByMetaId !== undefined) params.group_by_meta_id = options.groupByMetaId;
+
     return this.apiCall("get", "/api/roms", { params });
   }
 

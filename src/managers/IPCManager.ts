@@ -297,10 +297,23 @@ export class IPCManager {
       else throw new Error("RomM API is not initialized");
     });
 
-    ipcMain.handle("roms:search", async (event, query) => {
-      console.log("[IPC]" + `Searching ROMs with query: ${query}`);
-      if (this.rommClient.rommApi) return this.rommClient.rommApi.searchRoms(query);
-      else throw new Error("RomM API is not initialized");
+    ipcMain.handle("roms:search", async (event, query, platformId, limit, offset) => {
+      console.log("[IPC]" + `Searching ROMs with query: ${query}, platform: ${platformId}, limit: ${limit}, offset: ${offset}`);
+      if (this.rommClient.rommApi) {
+        const options: any = { search: query };
+        if (platformId !== null && platformId !== undefined) {
+          options.platform_id = platformId;
+        }
+        if (limit !== null && limit !== undefined) {
+          options.limit = limit;
+        }
+        if (offset !== null && offset !== undefined) {
+          options.offset = offset;
+        }
+        return this.rommClient.rommApi.fetchRoms(options);
+      } else {
+        throw new Error("RomM API is not initialized");
+      }
     });
 
     ipcMain.handle("roms:get-by-platform", async (event, { platform, limit, offset }) => {
