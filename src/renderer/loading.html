@@ -120,6 +120,11 @@
             animation: none;
         }
 
+        .status-dot.warning {
+            background-color: var(--warning);
+            animation: none;
+        }
+
         .status-steps {
             margin-top: 2rem;
             text-align: left;
@@ -142,6 +147,10 @@
 
         .status-step.success {
             color: var(--success);
+        }
+
+        .status-step.warning {
+            color: var(--warning);
         }
 
         .status-step.error {
@@ -168,6 +177,11 @@
         .step-icon.error::before {
             content: '✕';
             color: var(--danger);
+        }
+
+        .step-icon.warning::before {
+            content: '!';
+            color: var(--warning);
         }
 
         .step-icon.pending::before {
