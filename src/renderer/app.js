@@ -1521,10 +1521,16 @@ async function checkRomSaveStatus(rom) {
     }
 
     try {
-        const result = await window.electronAPI.checkRomSaves(rom);
-        const hasSaves = result.hasLocal || result.hasCloud;
-        romSaveStatus.set(rom.id, hasSaves);
-        return hasSaves;
+        if (isLibraryFullyCached) {
+            const result = await window.electronAPI.checkRomSaves(rom);
+            const hasSaves = result.hasLocal || result.hasCloud;
+            romSaveStatus.set(rom.id, hasSaves);
+            return hasSaves;
+        } else {
+            // for performance, only check local saves when not fully cached
+            return false;
+        }
+
     } catch (error) {
         console.error(`Error checking saves for ROM ${rom.id}:`, error);
         return false;
