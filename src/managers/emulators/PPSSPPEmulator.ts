@@ -532,6 +532,12 @@ export class PPSSPPEmulator extends Emulator {
         console.log(`[PPSSPP EMULATOR] Extracted files:`, extractedFiles);
       } else if (saveChoice === "local") {
         console.log(`[PPSSPP EMULATOR] Using existing local save for ROM ${rom.id}`);
+        // Prepare local saves by copying them to the session directory
+        const localSaveDir = saveManager.getLocalSaveDir(rom);
+        const prepareResult = await this.handleSavePreparation(rom, saveDir, localSaveDir, saveManager);
+        if (!prepareResult.success) {
+          console.warn(`[PPSSPP EMULATOR] Failed to prepare local saves: ${prepareResult.error}`);
+        }
       } else if (saveChoice === "none") {
         console.log(`[PPSSPP EMULATOR] Starting with no save (fresh start) for ROM ${rom.id}`);
         // Clear local save directory
@@ -570,6 +576,16 @@ export class PPSSPPEmulator extends Emulator {
           // Upload saves back to RomM
           if (rommAPI) {
             await this.handleSaveSync(rom, saveDir, rommAPI, saveManager);
+          }
+
+          // Clean up session directory after save sync completes
+          try {
+            console.log(`[PPSSPP] Cleaning up session directory: ${saveDir}`);
+            await this.deleteDirectoryRecursive(saveDir);
+            console.log(`[PPSSPP] Session directory cleaned up successfully`);
+          } catch (cleanupError: any) {
+            console.warn(`[PPSSPP] Failed to clean up session directory: ${cleanupError.message}`);
+            // Don't fail if cleanup fails, saves are already backed up
           }
         }
       });

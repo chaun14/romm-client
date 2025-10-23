@@ -433,16 +433,7 @@ export class RomManager {
         }
       }
 
-      // Step 7: Prepare saves for emulator
-      console.log("[LAUNCH FLOW] Preparing saves with option:", selectedSaveOption, selectedSaveId ? `(ID: ${selectedSaveId})` : "");
-      if (selectedSaveOption === "local" && saveData.hasLocal) {
-        const prepareResult = await emulator.handleSavePreparation(rom, tempSaveDir, saveData.localSaveDir, saveManager);
-        if (!prepareResult.success) {
-          console.warn("[LAUNCH FLOW] Save preparation failed:", prepareResult.error);
-        }
-      }
-
-      // Step 8: Get the ROM file path
+      // Step 7: Get the ROM file path
       const romFilePath = this.findRomFileInPath(localRom.localPath);
       if (!romFilePath) {
         throw new Error("Could not find ROM file in directory");
@@ -452,84 +443,37 @@ export class RomManager {
 
       let finalLaunchResult: any;
 
+      // Always use handleSaveChoice for consistency - it handles save preparation and launching
+      const romData = {
+        rom,
+        finalRomPath: romFilePath,
+        saveDir: tempSaveDir,
+      };
+
       if (selectedSaveOption === "cloud" && selectedSaveId) {
-        // For cloud saves, use handleSaveChoice which downloads the save and launches
+        // For cloud saves, use handleSaveChoice to download and launch
         console.log("[LAUNCH FLOW] Handling cloud save choice for save ID:", selectedSaveId);
-        const romData = {
-          rom,
-          finalRomPath: romFilePath,
-          saveDir: tempSaveDir,
-        };
         finalLaunchResult = await emulator.handleSaveChoice(romData, "cloud", saveManager, this.rommClient.rommApi, selectedSaveId);
         if (!finalLaunchResult.success) {
           throw new Error(`Failed to handle cloud save choice: ${finalLaunchResult.error}`);
         }
         // Cloud saves handle their own process monitoring in handleSaveChoice
-      } else {
-        // For local saves or no saves, launch normally
-        console.log("[LAUNCH FLOW] Launching emulator normally...");
-        const launchGameResult = await emulator.launch(romFilePath, tempSaveDir);
-        if (!launchGameResult.success || !launchGameResult.process) {
-          throw new Error(`Failed to launch emulator: ${launchGameResult.error}`);
+      } else if (selectedSaveOption === "local" && saveData.hasLocal) {
+        // For local saves, use handleSaveChoice to prepare and launch
+        console.log("[LAUNCH FLOW] Handling local save choice");
+        finalLaunchResult = await emulator.handleSaveChoice(romData, "local", saveManager, this.rommClient.rommApi);
+        if (!finalLaunchResult.success) {
+          throw new Error(`Failed to handle local save choice: ${finalLaunchResult.error}`);
         }
-
-        // Setup save sync on emulator close immediately after launch
-        launchGameResult.process.on("exit", async (code: number) => {
-          console.log("[LAUNCH FLOW] Emulator closed with code:", code);
-
-          // Sync saves back
-          const syncResult = await emulator.handleSaveSync(rom, tempSaveDir, this.rommClient.rommApi, saveManager);
-          if (syncResult.success) {
-            console.log("[LAUNCH FLOW] Saves synced successfully");
-          } else {
-            console.error("[LAUNCH FLOW] Save sync failed:", syncResult.error);
-          }
-
-          // Cleanup temp save directory
-          try {
-            // Use a more robust cleanup that handles nested directories
-            const cleanupDir = async (dirPath: string): Promise<void> => {
-              if (!fs.existsSync(dirPath)) return;
-
-              const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
-
-              for (const entry of entries) {
-                const fullPath = path.join(dirPath, entry.name);
-                if (entry.isDirectory()) {
-                  await cleanupDir(fullPath);
-                } else {
-                  await fs.promises.unlink(fullPath);
-                }
-              }
-
-              await fs.promises.rmdir(dirPath);
-            };
-
-            await cleanupDir(tempSaveDir);
-            console.log("[LAUNCH FLOW] Cleaned up temp save directory");
-          } catch (err: any) {
-            console.warn("[LAUNCH FLOW] Cleanup failed:", err.message);
-            // Try alternative cleanup method
-            try {
-              const { exec } = require("child_process");
-              const { promisify } = require("util");
-              const execAsync = promisify(exec);
-              await execAsync(`rmdir /s /q "${tempSaveDir}"`, { windowsHide: true });
-              console.log("[LAUNCH FLOW] Cleaned up temp save directory using alternative method");
-            } catch (fallbackErr: any) {
-              console.warn("[LAUNCH FLOW] Alternative cleanup also failed:", fallbackErr.message);
-            }
-          }
-        });
-
-        finalLaunchResult = {
-          success: true,
-          message: `ROM launched: ${rom.name}`,
-          pid: launchGameResult.process.pid,
-          romPath: romFilePath,
-          saveDir: tempSaveDir,
-          // Removed process object as it's not serializable for IPC
-        };
+        // Local saves handle their own process monitoring in handleSaveChoice
+      } else {
+        // For no saves, use handleSaveChoice with "none"
+        console.log("[LAUNCH FLOW] Handling fresh start (no saves)");
+        finalLaunchResult = await emulator.handleSaveChoice(romData, "none", saveManager, this.rommClient.rommApi);
+        if (!finalLaunchResult.success) {
+          throw new Error(`Failed to handle fresh start: ${finalLaunchResult.error}`);
+        }
+        // Fresh start handles its own process monitoring in handleSaveChoice
       }
 
       return finalLaunchResult;

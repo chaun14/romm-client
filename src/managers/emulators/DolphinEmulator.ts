@@ -259,93 +259,185 @@ export class DolphinEmulator extends Emulator {
 
   /**
    * Handle save preparation before launch
-   * Copies local saves from the save manager's directory to Dolphin's Wii/GC directories
+   * Copies local saves from the persistent storage to BOTH Wii and GC directories
    */
   public async handleSavePreparation(rom: Rom, saveDir: string, localSaveDir: string, saveManager: SaveManager): Promise<{ success: boolean; error?: string }> {
     try {
-      const isWiiGame = this.isWiiGame(rom);
-      const dolphinSaveDir = isWiiGame ? path.join(saveDir, "Wii") : path.join(saveDir, "GC");
+      console.log(`[DOLPHIN] Preparing saves for ROM ${rom.id}...`);
+      console.log(`[DOLPHIN] localSaveDir: ${localSaveDir}`);
+      console.log(`[DOLPHIN] saveDir (session): ${saveDir}`);
 
       // Check if there are local saves
       if (!fsSync.existsSync(localSaveDir)) {
-        console.log(`[Dolphin] No local save directory found: ${localSaveDir}`);
+        console.log(`[DOLPHIN] No local save directory found: ${localSaveDir}`);
         return { success: true };
       }
 
-      // Get save files
-      const saveFiles = await fs.readdir(localSaveDir, { recursive: true });
-      const filesToCopy = saveFiles.filter((file) => {
-        const filePath = path.join(localSaveDir, file.toString());
-        const stats = fsSync.statSync(filePath);
-        return stats.isFile();
-      });
-
-      if (filesToCopy.length === 0) {
-        console.log(`[Dolphin] No save files found in: ${localSaveDir}`);
-        return { success: true };
+      // List what's in the local save directory
+      try {
+        const contents = await fs.readdir(localSaveDir, { withFileTypes: true });
+        console.log(`[DOLPHIN] Contents of ${localSaveDir}:`, contents.map(c => ({ name: c.name, isDir: c.isDirectory() })));
+      } catch (err: any) {
+        console.warn(`[DOLPHIN] Could not list directory contents: ${err.message}`);
       }
 
-      console.log(`[Dolphin] Found ${filesToCopy.length} save files - copying to emulator...`);
+      // Prepare both Wii and GC directories
+      const wiiSaveDir = path.join(saveDir, "Wii");
+      const gcSaveDir = path.join(saveDir, "GC");
 
-      // Ensure Dolphin save directory exists
-      await fs.mkdir(dolphinSaveDir, { recursive: true });
+      // Clean existing directories to avoid recursive nesting
+      console.log(`[DOLPHIN] Cleaning existing save directories...`);
+      await this.clearSaveDirectories([wiiSaveDir, gcSaveDir]);
 
-      // Copy save files to appropriate Dolphin directory
-      for (const file of filesToCopy) {
-        const srcPath = path.join(localSaveDir, file.toString());
-        const destPath = path.join(dolphinSaveDir, file.toString());
+      // Ensure both directories exist
+      await fs.mkdir(wiiSaveDir, { recursive: true });
+      await fs.mkdir(gcSaveDir, { recursive: true });
+
+      console.log(`[DOLPHIN] Copying local saves to both Wii and GC directories...`);
+
+      // Helper function to copy directory recursively
+      const copyDirRecursive = async (src: string, dest: string): Promise<number> => {
+        let copiedCount = 0;
+        if (!fsSync.existsSync(src)) return copiedCount;
 
         try {
-          // Create directory structure if needed
-          const destDir = path.dirname(destPath);
-          await fs.mkdir(destDir, { recursive: true });
+          const entries = await fs.readdir(src, { withFileTypes: true });
 
-          // Copy the file
-          await fs.copyFile(srcPath, destPath);
-          console.log(`[Dolphin] Copied save: ${file}`);
-        } catch (err: any) {
-          console.warn(`[Dolphin] Failed to copy save file ${file}: ${err.message}`);
+          for (const entry of entries) {
+            const srcPath = path.join(src, entry.name);
+            const destPath = path.join(dest, entry.name);
+
+            try {
+              if (entry.isDirectory()) {
+                await fs.mkdir(destPath, { recursive: true });
+                copiedCount += await copyDirRecursive(srcPath, destPath);
+              } else {
+                if (fsSync.existsSync(srcPath)) {
+                  await fs.copyFile(srcPath, destPath);
+                  console.log(`[DOLPHIN] Copied save: ${entry.name}`);
+                  copiedCount++;
+                }
+              }
+            } catch (entryError: any) {
+              console.warn(`[DOLPHIN] Failed to copy ${entry.name}: ${entryError.message}`);
+            }
+          }
+        } catch (readError: any) {
+          console.warn(`[DOLPHIN] Failed to read directory ${src}: ${readError.message}`);
         }
-      }
 
-      console.log(`[Dolphin] Save preparation completed`);
+        return copiedCount;
+      };
+
+      // Copy saves to Wii directory
+      // Check if localSaveDir has Wii and GC subdirectories (from extracted ZIP)
+      const localWiiDir = path.join(localSaveDir, "Wii");
+      const localGcDir = path.join(localSaveDir, "GC");
+
+      console.log(`[DOLPHIN] Checking for local Wii dir: ${localWiiDir} - exists: ${fsSync.existsSync(localWiiDir)}`);
+      console.log(`[DOLPHIN] Checking for local GC dir: ${localGcDir} - exists: ${fsSync.existsSync(localGcDir)}`);
+
+      let wiiCopied = 0;
+      let gcCopied = 0;
+
+      // If Wii subdirectory exists in local saves, copy from there
+      if (fsSync.existsSync(localWiiDir)) {
+        console.log(`[DOLPHIN] Copying from local Wii directory...`);
+        try {
+          const wiiContents = await fs.readdir(localWiiDir, { withFileTypes: true });
+          console.log(`[DOLPHIN] Wii directory contents:`, wiiContents.map(c => ({ name: c.name, isDir: c.isDirectory() })));
+        } catch (err: any) {
+          console.warn(`[DOLPHIN] Could not read Wii dir: ${err.message}`);
+        }
+        wiiCopied = await copyDirRecursive(localWiiDir, wiiSaveDir);
+      } else {
+        // Otherwise copy the entire localSaveDir to Wii (flat structure)
+        console.log(`[DOLPHIN] Copying from local save directory to Wii (flat structure)...`);
+        try {
+          const saveContents = await fs.readdir(localSaveDir, { withFileTypes: true });
+          console.log(`[DOLPHIN] Local save directory contents:`, saveContents.map(c => ({ name: c.name, isDir: c.isDirectory() })));
+        } catch (err: any) {
+          console.warn(`[DOLPHIN] Could not read local save dir: ${err.message}`);
+        }
+        wiiCopied = await copyDirRecursive(localSaveDir, wiiSaveDir);
+      }
+      console.log(`[DOLPHIN] Copied ${wiiCopied} files to Wii directory`);
+
+      // Copy to GC directory
+      // If GC subdirectory exists in local saves, copy from there
+      if (fsSync.existsSync(localGcDir)) {
+        console.log(`[DOLPHIN] Copying from local GC directory...`);
+        try {
+          const gcContents = await fs.readdir(localGcDir, { withFileTypes: true });
+          console.log(`[DOLPHIN] GC directory contents:`, gcContents.map(c => ({ name: c.name, isDir: c.isDirectory() })));
+        } catch (err: any) {
+          console.warn(`[DOLPHIN] Could not read GC dir: ${err.message}`);
+        }
+        gcCopied = await copyDirRecursive(localGcDir, gcSaveDir);
+      } else {
+        // Otherwise copy the entire localSaveDir to GC (flat structure)
+        console.log(`[DOLPHIN] Copying from local save directory to GC (flat structure)...`);
+        try {
+          const saveContents = await fs.readdir(localSaveDir, { withFileTypes: true });
+          console.log(`[DOLPHIN] Local save directory contents for GC:`, saveContents.map(c => ({ name: c.name, isDir: c.isDirectory() })));
+        } catch (err: any) {
+          console.warn(`[DOLPHIN] Could not read local save dir: ${err.message}`);
+        }
+        gcCopied = await copyDirRecursive(localSaveDir, gcSaveDir);
+      }
+      console.log(`[DOLPHIN] Copied ${gcCopied} files to GC directory`);
+
+      console.log(`[DOLPHIN] Save preparation completed`);
       return { success: true };
     } catch (error: any) {
-      console.error(`[Dolphin] Error preparing saves: ${error.message}`);
+      console.error(`[DOLPHIN] Error preparing saves: ${error.message}`);
       return { success: false, error: error.message };
     }
   }
 
   public async getSaveComparison(rom: Rom, saveDir: string, rommAPI: RommApi | null, saveManager: SaveManager): Promise<SaveComparisonResult> {
     try {
-      // Determine if this is a Wii or GameCube game
-      const isWiiGame = this.isWiiGame(rom);
-
-      // Compare saves in the entire Wii or GC directory
-      const dolphinSaveDir = isWiiGame ? path.join(saveDir, "Wii") : path.join(saveDir, "GC");
-
-      console.log(`Comparing local and cloud saves for ROM ${rom.id}...`);
+      console.log(`[DOLPHIN] Comparing local and cloud saves for ROM ${rom.id}...`);
 
       if (!rommAPI) {
         throw new Error("RomM API is not available");
       }
 
-      // Check for local saves
+      // Check for local saves in both Wii and GC directories
+      const wiiSaveDir = path.join(saveDir, "Wii");
+      const gcSaveDir = path.join(saveDir, "GC");
+
       let hasLocal = false;
-      if (fsSync.existsSync(dolphinSaveDir)) {
-        const files = await fs.readdir(dolphinSaveDir, { recursive: true });
-        hasLocal = files.some((file: string) => {
-          const filePath = path.join(dolphinSaveDir, file);
+
+      // Check Wii directory
+      if (fsSync.existsSync(wiiSaveDir)) {
+        const files = await fs.readdir(wiiSaveDir, { recursive: true });
+        if (files.some((file: string) => {
+          const filePath = path.join(wiiSaveDir, file);
           const stat = fsSync.statSync(filePath);
           return stat.isFile();
-        });
+        })) {
+          hasLocal = true;
+        }
+      }
+
+      // Check GC directory
+      if (!hasLocal && fsSync.existsSync(gcSaveDir)) {
+        const files = await fs.readdir(gcSaveDir, { recursive: true });
+        if (files.some((file: string) => {
+          const filePath = path.join(gcSaveDir, file);
+          const stat = fsSync.statSync(filePath);
+          return stat.isFile();
+        })) {
+          hasLocal = true;
+        }
       }
 
       // Check for cloud saves
-      console.log(`[DOLPHIN EMULATOR] Checking cloud saves for ROM ${rom.id} (${rom.name})`);
+      console.log(`[DOLPHIN] Checking cloud saves for ROM ${rom.id} (${rom.name})`);
       const cloudResult = await rommAPI.downloadSave(rom.id);
       const hasCloud = cloudResult.success && cloudResult.data && Array.isArray(cloudResult.data) && cloudResult.data.length > 0;
-      console.log(`[DOLPHIN EMULATOR] Cloud saves result for ROM ${rom.id}:`, {
+      console.log(`[DOLPHIN] Cloud saves result for ROM ${rom.id}:`, {
         success: cloudResult.success,
         hasData: !!cloudResult.data,
         dataLength: Array.isArray(cloudResult.data) ? cloudResult.data.length : 0,
@@ -357,13 +449,13 @@ export class DolphinEmulator extends Emulator {
         data: {
           hasLocal,
           hasCloud,
-          localSave: hasLocal ? dolphinSaveDir : null,
+          localSave: hasLocal ? saveDir : null,
           cloudSaves: hasCloud ? cloudResult.data : [],
           recommendation: hasLocal ? "local" : hasCloud ? "cloud" : "none",
         },
       };
     } catch (error: any) {
-      console.error(`Error comparing saves for ROM ${rom.id}:`, error);
+      console.error(`[DOLPHIN] Error comparing saves for ROM ${rom.id}:`, error);
       return {
         success: false,
         error: error.message,
@@ -373,71 +465,178 @@ export class DolphinEmulator extends Emulator {
 
   public async handleSaveSync(rom: Rom, saveDir: string, rommAPI: RommApi | null, saveManager: SaveManager): Promise<SaveSyncResult> {
     try {
-      // Determine if this is a Wii or GameCube game
-      const isWiiGame = this.isWiiGame(rom);
+      // Upload BOTH Wii and GC directories regardless of platform
+      // This ensures saves are backed up no matter which platform the game runs on
+      const wiiSaveDir = path.join(saveDir, "Wii");
+      const gcSaveDir = path.join(saveDir, "GC");
 
-      // Upload the entire Wii or GC directory
-      const dolphinSaveDir = isWiiGame ? path.join(saveDir, "Wii") : path.join(saveDir, "GC");
-
-      console.log(`Uploading saves from ${dolphinSaveDir} to RomM...`);
+      console.log(`[DOLPHIN] Uploading saves from both Wii and GC directories...`);
 
       if (!rommAPI) {
         throw new Error("RomM API is not available");
       }
 
-      // Check if save directory exists and has files
-      if (!fsSync.existsSync(dolphinSaveDir)) {
-        console.log(`No save directory found at ${dolphinSaveDir}, skipping upload`);
+      // Check if either directory has files
+      const checkDirHasFiles = async (dirPath: string): Promise<boolean> => {
+        if (!fsSync.existsSync(dirPath)) return false;
+        try {
+          const files = await fs.readdir(dirPath, { recursive: true });
+          return files.some((file: string) => {
+            const filePath = path.join(dirPath, file);
+            try {
+              return fsSync.statSync(filePath).isFile();
+            } catch {
+              return false;
+            }
+          });
+        } catch {
+          return false;
+        }
+      };
+
+      const wiiHasFiles = await checkDirHasFiles(wiiSaveDir);
+      const gcHasFiles = await checkDirHasFiles(gcSaveDir);
+
+      if (!wiiHasFiles && !gcHasFiles) {
+        console.log(`[DOLPHIN] No save files found in Wii or GC directories, skipping upload`);
         return {
           success: true,
           message: "No saves to upload",
         };
       }
 
-      // Check if there are any save files
-      const saveFiles = await fs.readdir(dolphinSaveDir, { recursive: true });
-      const actualFiles = saveFiles.filter((file: string) => {
-        const filePath = path.join(dolphinSaveDir, file);
-        const stat = fsSync.statSync(filePath);
-        return stat.isFile();
-      });
-
-      if (actualFiles.length === 0) {
-        console.log(`No save files found in ${dolphinSaveDir}, skipping upload`);
-        return {
-          success: true,
-          message: "No saves to upload",
-        };
-      }
-
-      console.log(`Found ${actualFiles.length} save files to upload`);
+      console.log(`[DOLPHIN] Found saves - Wii: ${wiiHasFiles}, GC: ${gcHasFiles}`);
 
       // Create a temporary ZIP file
       const tempDir = os.tmpdir();
       const tempZipPath = path.join(tempDir, `dolphin_save_${rom.id}_${Date.now()}.zip`);
 
       try {
-        // Create ZIP file from save directory
+        // Create ZIP file with both Wii and GC directories
         const zip = new AdmZip();
 
-        // Add all files from the save directory to the ZIP
-        zip.addLocalFolder(dolphinSaveDir, "");
+        // Add Wii saves if present
+        if (wiiHasFiles && fsSync.existsSync(wiiSaveDir)) {
+          console.log(`[DOLPHIN] Adding Wii saves to ZIP...`);
+          zip.addLocalFolder(wiiSaveDir, "Wii");
+        }
+
+        // Add GC saves if present
+        if (gcHasFiles && fsSync.existsSync(gcSaveDir)) {
+          console.log(`[DOLPHIN] Adding GC saves to ZIP...`);
+          zip.addLocalFolder(gcSaveDir, "GC");
+        }
 
         // Write ZIP to temporary file
-        console.log(`Creating ZIP file: ${tempZipPath}`);
+        console.log(`[DOLPHIN] Creating ZIP file: ${tempZipPath}`);
         zip.writeZip(tempZipPath);
 
-        // Upload to RomM
-        const uploadResult = await rommAPI.uploadSave(rom.id, tempZipPath, isWiiGame ? "wii" : "gamecube");
+        // Upload to RomM - use generic "dolphin" type since we're uploading both
+        const uploadResult = await rommAPI.uploadSave(rom.id, tempZipPath, "dolphin");
         if (!uploadResult.success) {
-          console.error(`Failed to upload saves to RomM: ${uploadResult.error}`);
+          console.error(`[DOLPHIN] Failed to upload saves to RomM: ${uploadResult.error}`);
           return {
             success: false,
             error: uploadResult.error || "Upload failed",
           };
         }
 
-        console.log(`Successfully uploaded saves to RomM for ROM ${rom.id}`);
+        console.log(`[DOLPHIN] Successfully uploaded saves to RomM for ROM ${rom.id}`);
+
+        // Wait a bit for emulator to fully close and release file handles
+        console.log(`[DOLPHIN] Waiting for emulator to fully close before copying saves...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // After successful upload, copy saves to persistent local storage
+        try {
+          const persistentSaveDir = saveManager.getLocalSaveDir(rom);
+          console.log(`[DOLPHIN] Copying saves to persistent storage: ${persistentSaveDir}`);
+
+          // Ensure persistent directory exists
+          await fs.mkdir(persistentSaveDir, { recursive: true });
+
+          // Re-check if files still exist (they might have been cleaned up)
+          const wiiStillHasFiles = await checkDirHasFiles(wiiSaveDir);
+          const gcStillHasFiles = await checkDirHasFiles(gcSaveDir);
+
+          console.log(`[DOLPHIN] Rechecked directories - Wii: ${wiiStillHasFiles}, GC: ${gcStillHasFiles}`);
+
+          // Helper function to copy directory recursively with error handling
+          const copyDirRecursive = async (src: string, dest: string): Promise<number> => {
+            let copiedCount = 0;
+            
+            if (!fsSync.existsSync(src)) {
+              console.warn(`[DOLPHIN] Source directory does not exist: ${src}`);
+              return copiedCount;
+            }
+
+            try {
+              const entries = await fs.readdir(src, { withFileTypes: true });
+
+              for (const entry of entries) {
+                const srcPath = path.join(src, entry.name);
+                const destPath = path.join(dest, entry.name);
+
+                try {
+                  if (entry.isDirectory()) {
+                    await fs.mkdir(destPath, { recursive: true });
+                    copiedCount += await copyDirRecursive(srcPath, destPath);
+                  } else {
+                    // Check if source file exists before copying
+                    if (fsSync.existsSync(srcPath)) {
+                      await fs.copyFile(srcPath, destPath);
+                      console.log(`[DOLPHIN] Copied to persistent: ${entry.name}`);
+                      copiedCount++;
+                    } else {
+                      console.warn(`[DOLPHIN] Source file disappeared: ${srcPath}`);
+                    }
+                  }
+                } catch (entryError: any) {
+                  console.warn(`[DOLPHIN] Failed to copy ${entry.name}: ${entryError.message}`);
+                }
+              }
+            } catch (readError: any) {
+              console.warn(`[DOLPHIN] Failed to read directory ${src}: ${readError.message}`);
+            }
+            
+            return copiedCount;
+          };
+
+          // Copy both Wii and GC directories to persistent storage
+          let totalCopied = 0;
+          if (wiiStillHasFiles) {
+            console.log(`[DOLPHIN] Copying Wii saves...`);
+            const wiiCopied = await copyDirRecursive(wiiSaveDir, path.join(persistentSaveDir, "Wii"));
+            totalCopied += wiiCopied;
+            console.log(`[DOLPHIN] Copied ${wiiCopied} files from Wii directory`);
+          }
+          if (gcStillHasFiles) {
+            console.log(`[DOLPHIN] Copying GC saves...`);
+            const gcCopied = await copyDirRecursive(gcSaveDir, path.join(persistentSaveDir, "GC"));
+            totalCopied += gcCopied;
+            console.log(`[DOLPHIN] Copied ${gcCopied} files from GC directory`);
+          }
+
+          if (totalCopied === 0) {
+            console.warn(`[DOLPHIN] No files were copied to persistent storage - might be empty after emulator close`);
+          }
+
+          console.log(`[DOLPHIN] Saves copied to persistent storage successfully (${totalCopied} files)`);
+
+          // Clean up the session directory now that saves are backed up and copied
+          try {
+            console.log(`[DOLPHIN] Cleaning up session directory: ${saveDir}`);
+            await this.deleteDirectoryRecursive(saveDir);
+            console.log(`[DOLPHIN] Session directory cleaned up successfully`);
+          } catch (cleanupError: any) {
+            console.warn(`[DOLPHIN] Failed to clean up session directory: ${cleanupError.message}`);
+            // Don't fail if cleanup fails, saves are already backed up
+          }
+        } catch (copyError: any) {
+          console.warn(`[DOLPHIN] Failed to copy saves to persistent storage: ${copyError.message}`);
+          // Don't fail the entire operation if local copy fails
+        }
+
         return {
           success: true,
           message: "Save sync completed",
@@ -447,14 +646,14 @@ export class DolphinEmulator extends Emulator {
         try {
           if (fsSync.existsSync(tempZipPath)) {
             await fs.unlink(tempZipPath);
-            console.log(`Cleaned up temporary ZIP file: ${tempZipPath}`);
+            console.log(`[DOLPHIN] Cleaned up temporary ZIP file: ${tempZipPath}`);
           }
         } catch (cleanupError: any) {
-          console.warn(`Failed to clean up temporary ZIP file: ${cleanupError.message}`);
+          console.warn(`[DOLPHIN] Failed to clean up temporary ZIP file: ${cleanupError.message}`);
         }
       }
     } catch (saveError: any) {
-      console.error(`Error uploading saves: ${saveError.message}`);
+      console.error(`[DOLPHIN] Error uploading saves: ${saveError.message}`);
       return {
         success: false,
         error: saveError.message,
@@ -464,87 +663,106 @@ export class DolphinEmulator extends Emulator {
 
   public async handleSaveChoice(romData: any, saveChoice: string, saveManager: SaveManager, rommAPI: RommApi | null, saveId?: number): Promise<SaveChoiceResult> {
     try {
-      const { rom, finalRomPath, saveDir, gameType, userDir } = romData;
+      const { rom, finalRomPath, saveDir } = romData;
 
-      console.log(`User chose save: ${saveChoice}${saveId ? ` (ID: ${saveId})` : ""}`);
+      console.log(`[DOLPHIN] User chose save: ${saveChoice}${saveId ? ` (ID: ${saveId})` : ""}`);
 
-      // Determine Dolphin save directory (same as ROM save directory now)
-      const dolphinSaveDir = gameType === "wii" ? path.join(userDir, "Wii") : path.join(userDir, "GC");
+      const userDir = saveDir;
+      const wiiSaveDir = path.join(userDir, "Wii");
+      const gcSaveDir = path.join(userDir, "GC");
+
+      // Ensure both directories exist
+      await fs.mkdir(wiiSaveDir, { recursive: true });
+      await fs.mkdir(gcSaveDir, { recursive: true });
 
       // Handle save loading based on choice
       if (saveChoice === "cloud") {
-        console.log(`[DOLPHIN EMULATOR] User chose cloud save${saveId ? ` #${saveId}` : ""} for ROM ${rom.id}`);
+        console.log(`[DOLPHIN] User chose cloud save${saveId ? ` #${saveId}` : ""} for ROM ${rom.id}`);
         if (!rommAPI) {
-          console.error(`[DOLPHIN EMULATOR] RomM API is not available for cloud save download`);
+          console.error(`[DOLPHIN] RomM API is not available for cloud save download`);
           throw new Error("RomM API is not available");
         }
 
         if (!saveId) {
-          console.error(`[DOLPHIN EMULATOR] No saveId provided for cloud save download`);
+          console.error(`[DOLPHIN] No saveId provided for cloud save download`);
           throw new Error("No save ID provided for cloud save");
         }
 
-        console.log(`[DOLPHIN EMULATOR] Downloading cloud save #${saveId} to ${dolphinSaveDir}`);
+        console.log(`[DOLPHIN] Downloading cloud save #${saveId}`);
 
         // Get the specific save data
         const saveListResult = await rommAPI.downloadSave(rom.id);
         if (!saveListResult.success || !saveListResult.data) {
-          console.error(`[DOLPHIN EMULATOR] Failed to get save list for ROM ${rom.id}`);
+          console.error(`[DOLPHIN] Failed to get save list for ROM ${rom.id}`);
           throw new Error("Failed to get save list from RomM");
         }
 
         const saveData = saveListResult.data.find((save: any) => save.id === saveId);
         if (!saveData) {
-          console.error(`[DOLPHIN EMULATOR] Save #${saveId} not found in save list for ROM ${rom.id}`);
+          console.error(`[DOLPHIN] Save #${saveId} not found in save list for ROM ${rom.id}`);
           throw new Error(`Save ${saveId} not found`);
         }
 
-        console.log(`[DOLPHIN EMULATOR] Found save data:`, {
+        console.log(`[DOLPHIN] Found save data:`, {
           id: saveData.id,
           fileName: saveData.file_name,
           downloadPath: saveData.download_path,
         });
 
         // Download the save file
-        console.log(`[DOLPHIN EMULATOR] Downloading save file from: ${saveData.download_path}`);
+        console.log(`[DOLPHIN] Downloading save file from: ${saveData.download_path}`);
         const downloadResult = await rommAPI.downloadSaveFile(saveData);
         if (!downloadResult.success || !downloadResult.data) {
-          console.error(`[DOLPHIN EMULATOR] Failed to download save file #${saveId}`);
+          console.error(`[DOLPHIN] Failed to download save file #${saveId}`);
           throw new Error("Failed to download save file");
         }
 
-        console.log(`[DOLPHIN EMULATOR] Downloaded ${downloadResult.data.length} bytes, extracting to ${dolphinSaveDir}`);
+        console.log(`[DOLPHIN] Downloaded ${downloadResult.data.length} bytes, extracting to both Wii and GC directories...`);
 
-        // Extract the ZIP file
+        // Extract to both directories
         const zip = new AdmZip(downloadResult.data);
-        zip.extractAllTo(dolphinSaveDir, true);
 
-        console.log(`[DOLPHIN EMULATOR] Save extracted successfully to ${dolphinSaveDir}`);
+        // Extract to Wii directory
+        console.log(`[DOLPHIN] Extracting to Wii directory: ${wiiSaveDir}`);
+        zip.extractAllTo(wiiSaveDir, true);
+
+        // Extract to GC directory
+        console.log(`[DOLPHIN] Extracting to GC directory: ${gcSaveDir}`);
+        zip.extractAllTo(gcSaveDir, true);
+
+        console.log(`[DOLPHIN] Save extracted successfully to both directories`);
 
         // Verify extraction
-        const extractedFiles = await fs.readdir(dolphinSaveDir, { recursive: true });
-        console.log(`[DOLPHIN EMULATOR] Extracted files:`, extractedFiles);
+        const wiiFiles = await fs.readdir(wiiSaveDir, { recursive: true });
+        const gcFiles = await fs.readdir(gcSaveDir, { recursive: true });
+        console.log(`[DOLPHIN] Extracted files - Wii:`, wiiFiles, `GC:`, gcFiles);
       } else if (saveChoice === "local") {
-        console.log(`[DOLPHIN EMULATOR] Using existing local save for ROM ${rom.id}`);
-        // Local saves should already be in the Dolphin directory
+        console.log(`[DOLPHIN] Using existing local save for ROM ${rom.id}`);
+        // Copy local saves to both directories for the session
+        const localSaveDir = saveManager.getLocalSaveDir(rom);
+        const prepareResult = await this.handleSavePreparation(rom, userDir, localSaveDir, saveManager);
+        if (!prepareResult.success) {
+          console.warn(`[DOLPHIN] Failed to prepare local saves: ${prepareResult.error}`);
+        }
       } else if (saveChoice === "none") {
-        console.log(`[DOLPHIN EMULATOR] Starting with no save (fresh start) for ROM ${rom.id}`);
-        // Clear the Dolphin save directory
-        await this.clearSaveDirectories([dolphinSaveDir]);
+        console.log(`[DOLPHIN] Starting with no save (fresh start) for ROM ${rom.id}`);
+        // Clear both save directories
+        await this.clearSaveDirectories([wiiSaveDir, gcSaveDir]);
       }
 
       // Launch emulator with custom user directory
-      console.log(`Launching Dolphin: ${this.getExecutablePath()} -u "${userDir}" -e "${finalRomPath}"`);
-      const args = this.prepareArgs(finalRomPath, userDir);
+      console.log(`[DOLPHIN] Launching Dolphin: ${this.getExecutablePath()} -u "${userDir}" -e "${finalRomPath}"`);
       const launchResult = await this.launch(finalRomPath, userDir);
 
       // Monitor process to upload saves when it closes
       if (launchResult.process) {
+        let saveUploaded = false; // Prevent duplicate uploads
         launchResult.process.on("exit", async (code) => {
-          console.log(`Dolphin closed with code ${code}`);
+          console.log(`[DOLPHIN] Dolphin closed with code ${code}`);
 
-          // Sync saves back to ROM directory and upload to RomM
-          if (rommAPI) {
+          // Sync saves back to ROM directory and upload to RomM (only once)
+          if (rommAPI && !saveUploaded) {
+            saveUploaded = true;
             await this.handleSaveSync(rom, saveDir, rommAPI, saveManager);
           }
         });
@@ -585,6 +803,31 @@ export class DolphinEmulator extends Emulator {
           console.warn(`Failed to clear directory ${dir}: ${error.message}`);
         }
       }
+    }
+  }
+
+  private async deleteDirectoryRecursive(dirPath: string): Promise<void> {
+    if (!fsSync.existsSync(dirPath)) return;
+
+    try {
+      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+
+      for (const entry of entries) {
+        const fullPath = path.join(dirPath, entry.name);
+        if (entry.isDirectory()) {
+          await this.deleteDirectoryRecursive(fullPath);
+        } else {
+          try {
+            await fs.unlink(fullPath);
+          } catch (err: any) {
+            console.warn(`[DOLPHIN] Failed to delete file ${fullPath}: ${err.message}`);
+          }
+        }
+      }
+
+      await fs.rmdir(dirPath);
+    } catch (error: any) {
+      console.warn(`[DOLPHIN] Failed to delete directory ${dirPath}: ${error.message}`);
     }
   }
 }
