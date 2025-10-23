@@ -8,6 +8,8 @@ let isLibraryFullyCached = false;
 let remoteRoms = [];
 let localRoms = [];
 
+let rommBaseUrl = '';
+
 // Cache status for ROMs
 let romCacheStatus = new Map();
 let romSaveStatus = new Map();
@@ -22,133 +24,7 @@ let loadedViews = {
     emulators: false
 };
 
-// Settings
-document.getElementById('test-connection-btn').addEventListener('click', async () => {
-    const url = document.getElementById('romm-url').value;
 
-    if (!url) {
-        showResult('Please enter a URL', 'error');
-        return;
-    }
-
-    await window.electronAPI.config.setRommUrl(url);
-    const result = await window.electronAPI.config.testConnection();
-
-    if (result.success) {
-        showResult('Connection successful!', 'success');
-        updateConnectionStatus(true);
-
-        // Store auth method for next step
-        const authMethod = result.data?.auth_method || 'password';
-        document.getElementById('romm-url').dataset.authMethod = authMethod;
-
-        // Enable the Next button
-        document.getElementById('next-to-auth-btn').disabled = false;
-        document.getElementById('next-to-auth-btn').classList.remove('btn-disabled');
-    } else {
-        showResult(`Error: ${result.error}`, 'error');
-        updateConnectionStatus(false);
-
-        // Keep Next button disabled on connection failure
-        document.getElementById('next-to-auth-btn').disabled = true;
-        document.getElementById('next-to-auth-btn').classList.add('btn-disabled');
-    }
-});
-
-document.getElementById('next-to-auth-btn').addEventListener('click', () => {
-    const url = document.getElementById('romm-url').value;
-    const authMethod = document.getElementById('romm-url').dataset.authMethod;
-
-    if (!url) {
-        showResult('Please enter a URL first', 'error');
-        return;
-    }
-
-    if (!authMethod) {
-        showResult('Please test the connection first', 'error');
-        return;
-    }
-
-    // Move to auth step
-    document.getElementById('server-url-step').classList.remove('active');
-    document.getElementById('auth-step').classList.add('active');
-
-    // Configure auth form based on method
-    if (authMethod === 'oauth') {
-        document.getElementById('auth-description').textContent = 'OAuth authentication will open in a new window.';
-        document.getElementById('password-auth-form').style.display = 'none';
-        document.getElementById('oauth-auth-form').style.display = 'block';
-    } else {
-        document.getElementById('auth-description').textContent = 'Enter your credentials to connect to RomM.';
-        document.getElementById('password-auth-form').style.display = 'block';
-        document.getElementById('oauth-auth-form').style.display = 'none';
-    }
-});
-
-document.getElementById('back-to-url-btn').addEventListener('click', () => {
-    document.getElementById('auth-step').classList.remove('active');
-    document.getElementById('server-url-step').classList.add('active');
-
-    // Reset Next button to disabled when going back
-    document.getElementById('next-to-auth-btn').disabled = true;
-    document.getElementById('next-to-auth-btn').classList.add('btn-disabled');
-});
-
-document.getElementById('back-to-url-oauth-btn').addEventListener('click', () => {
-    document.getElementById('auth-step').classList.remove('active');
-    document.getElementById('server-url-step').classList.add('active');
-
-    // Reset Next button to disabled when going back
-    document.getElementById('next-to-auth-btn').disabled = true;
-    document.getElementById('next-to-auth-btn').classList.add('btn-disabled');
-});
-
-document.getElementById('start-oauth-btn').addEventListener('click', async () => {
-    const url = document.getElementById('romm-url').value;
-
-    try {
-        // Start OAuth flow
-        const result = await window.electronAPI.config.startOAuth(url);
-
-        if (result.success) {
-            showResult('OAuth window opened. Complete authentication in the new window.', 'success');
-
-            // Listen for OAuth completion
-            window.electronAPI.onOAuthComplete(async (authResult) => {
-                if (authResult.success) {
-                    showResult('OAuth authentication successful!', 'success');
-
-                    // Load user info
-                    await loadCurrentUser();
-
-                    // Move to connected state
-                    document.getElementById('auth-step').classList.remove('active');
-                    document.getElementById('connected-state').classList.add('active');
-                } else {
-                    showResult(`OAuth failed: ${authResult.error}`, 'error');
-                }
-            });
-        } else {
-            showResult(`Failed to start OAuth: ${result.error}`, 'error');
-        }
-    } catch (error) {
-        showResult(`Error: ${error.message}`, 'error');
-    }
-});
-
-document.getElementById('save-settings-btn').addEventListener('click', async () => {
-    const url = document.getElementById('romm-url').value;
-    const username = document.getElementById('username').value;
-    const password = document.getElementById('password').value;
-
-    if (!url || !username || !password) {
-        showResult('Please fill in all fields', 'error');
-        return;
-    }
-
-    // Show consent modal before saving credentials
-    showConsentModal(url, username, password);
-});
 
 // Settings logout button
 document.getElementById('settings-logout-btn').addEventListener('click', async () => {
@@ -188,7 +64,7 @@ async function loadCurrentUser() {
         document.getElementById('user-info-connected').innerHTML = `
             <p><strong>Username:</strong> ${currentUser.username}</p>
             <p><strong>Role:</strong> ${currentUser.role}</p>
-            <p><strong>Server:</strong> ${document.getElementById('romm-url').value}</p>
+            <p><strong>Server:</strong> ${rommBaseUrl}</p>
         `;
 
         return true;
@@ -584,8 +460,7 @@ async function handleConsentResponse(saveCredentials) {
         // Load user info
         await loadCurrentUser();
 
-        // Move to connected state
-        document.getElementById('auth-step').classList.remove('active');
+
         document.getElementById('connected-state').classList.add('active');
     } else {
         showResult(`Error: ${result.error}`, 'error');
@@ -1770,7 +1645,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Load saved server URL into the input field
     const savedUrl = await window.electronAPI.config.getBaseUrl();
     if (savedUrl) {
-        document.getElementById('romm-url').value = savedUrl;
+        rommBaseUrl = savedUrl;
     }
 
     // Test connection and check if user is authenticated
@@ -1791,22 +1666,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                 await loadPlatforms();
 
                 // Show connected state in settings (but keep settings view hidden)
-                document.getElementById('server-url-step').classList.remove('active');
-                document.getElementById('auth-step').classList.remove('active');
                 document.getElementById('connected-state').classList.add('active');
             } else {
                 // Saved auth didn't work, show login form
-                document.getElementById('server-url-step').classList.add('active');
                 updateConnectionStatus(false);
             }
         } else {
             // No saved auth, show login form
-            document.getElementById('server-url-step').classList.add('active');
             updateConnectionStatus(false);
         }
     } else {
         // No connection to server
-        document.getElementById('server-url-step').classList.add('active');
         updateConnectionStatus(false);
     }
 });
@@ -2106,13 +1976,9 @@ function updateSettingsViewState() {
 
     if (isConnected) {
         // Show connected state
-        document.getElementById('server-url-step').classList.remove('active');
-        document.getElementById('auth-step').classList.remove('active');
         document.getElementById('connected-state').classList.add('active');
     } else {
         // Show server URL step for connection
-        document.getElementById('server-url-step').classList.add('active');
-        document.getElementById('auth-step').classList.remove('active');
         document.getElementById('connected-state').classList.remove('active');
     }
 }
