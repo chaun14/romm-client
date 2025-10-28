@@ -276,7 +276,10 @@ export class DolphinEmulator extends Emulator {
       // List what's in the local save directory
       try {
         const contents = await fs.readdir(localSaveDir, { withFileTypes: true });
-        console.log(`[DOLPHIN] Contents of ${localSaveDir}:`, contents.map(c => ({ name: c.name, isDir: c.isDirectory() })));
+        console.log(
+          `[DOLPHIN] Contents of ${localSaveDir}:`,
+          contents.map((c) => ({ name: c.name, isDir: c.isDirectory() }))
+        );
       } catch (err: any) {
         console.warn(`[DOLPHIN] Could not list directory contents: ${err.message}`);
       }
@@ -345,7 +348,10 @@ export class DolphinEmulator extends Emulator {
         console.log(`[DOLPHIN] Copying from local Wii directory...`);
         try {
           const wiiContents = await fs.readdir(localWiiDir, { withFileTypes: true });
-          console.log(`[DOLPHIN] Wii directory contents:`, wiiContents.map(c => ({ name: c.name, isDir: c.isDirectory() })));
+          console.log(
+            `[DOLPHIN] Wii directory contents:`,
+            wiiContents.map((c) => ({ name: c.name, isDir: c.isDirectory() }))
+          );
         } catch (err: any) {
           console.warn(`[DOLPHIN] Could not read Wii dir: ${err.message}`);
         }
@@ -355,7 +361,10 @@ export class DolphinEmulator extends Emulator {
         console.log(`[DOLPHIN] Copying from local save directory to Wii (flat structure)...`);
         try {
           const saveContents = await fs.readdir(localSaveDir, { withFileTypes: true });
-          console.log(`[DOLPHIN] Local save directory contents:`, saveContents.map(c => ({ name: c.name, isDir: c.isDirectory() })));
+          console.log(
+            `[DOLPHIN] Local save directory contents:`,
+            saveContents.map((c) => ({ name: c.name, isDir: c.isDirectory() }))
+          );
         } catch (err: any) {
           console.warn(`[DOLPHIN] Could not read local save dir: ${err.message}`);
         }
@@ -369,7 +378,10 @@ export class DolphinEmulator extends Emulator {
         console.log(`[DOLPHIN] Copying from local GC directory...`);
         try {
           const gcContents = await fs.readdir(localGcDir, { withFileTypes: true });
-          console.log(`[DOLPHIN] GC directory contents:`, gcContents.map(c => ({ name: c.name, isDir: c.isDirectory() })));
+          console.log(
+            `[DOLPHIN] GC directory contents:`,
+            gcContents.map((c) => ({ name: c.name, isDir: c.isDirectory() }))
+          );
         } catch (err: any) {
           console.warn(`[DOLPHIN] Could not read GC dir: ${err.message}`);
         }
@@ -379,7 +391,10 @@ export class DolphinEmulator extends Emulator {
         console.log(`[DOLPHIN] Copying from local save directory to GC (flat structure)...`);
         try {
           const saveContents = await fs.readdir(localSaveDir, { withFileTypes: true });
-          console.log(`[DOLPHIN] Local save directory contents for GC:`, saveContents.map(c => ({ name: c.name, isDir: c.isDirectory() })));
+          console.log(
+            `[DOLPHIN] Local save directory contents for GC:`,
+            saveContents.map((c) => ({ name: c.name, isDir: c.isDirectory() }))
+          );
         } catch (err: any) {
           console.warn(`[DOLPHIN] Could not read local save dir: ${err.message}`);
         }
@@ -412,11 +427,13 @@ export class DolphinEmulator extends Emulator {
       // Check Wii directory
       if (fsSync.existsSync(wiiSaveDir)) {
         const files = await fs.readdir(wiiSaveDir, { recursive: true });
-        if (files.some((file: string) => {
-          const filePath = path.join(wiiSaveDir, file);
-          const stat = fsSync.statSync(filePath);
-          return stat.isFile();
-        })) {
+        if (
+          files.some((file: string) => {
+            const filePath = path.join(wiiSaveDir, file);
+            const stat = fsSync.statSync(filePath);
+            return stat.isFile();
+          })
+        ) {
           hasLocal = true;
         }
       }
@@ -424,11 +441,13 @@ export class DolphinEmulator extends Emulator {
       // Check GC directory
       if (!hasLocal && fsSync.existsSync(gcSaveDir)) {
         const files = await fs.readdir(gcSaveDir, { recursive: true });
-        if (files.some((file: string) => {
-          const filePath = path.join(gcSaveDir, file);
-          const stat = fsSync.statSync(filePath);
-          return stat.isFile();
-        })) {
+        if (
+          files.some((file: string) => {
+            const filePath = path.join(gcSaveDir, file);
+            const stat = fsSync.statSync(filePath);
+            return stat.isFile();
+          })
+        ) {
           hasLocal = true;
         }
       }
@@ -545,7 +564,7 @@ export class DolphinEmulator extends Emulator {
 
         // Wait a bit for emulator to fully close and release file handles
         console.log(`[DOLPHIN] Waiting for emulator to fully close before copying saves...`);
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise((resolve) => setTimeout(resolve, 2000));
 
         // After successful upload, copy saves to persistent local storage
         try {
@@ -564,7 +583,7 @@ export class DolphinEmulator extends Emulator {
           // Helper function to copy directory recursively with error handling
           const copyDirRecursive = async (src: string, dest: string): Promise<number> => {
             let copiedCount = 0;
-            
+
             if (!fsSync.existsSync(src)) {
               console.warn(`[DOLPHIN] Source directory does not exist: ${src}`);
               return copiedCount;
@@ -598,7 +617,7 @@ export class DolphinEmulator extends Emulator {
             } catch (readError: any) {
               console.warn(`[DOLPHIN] Failed to read directory ${src}: ${readError.message}`);
             }
-            
+
             return copiedCount;
           };
 

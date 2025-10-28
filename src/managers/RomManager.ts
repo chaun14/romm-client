@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import AdmZip from "adm-zip";
+import unzipper from "unzipper";
 
 import { RommClient } from "../RomMClient";
 import { LocalRom, Rom } from "../types/RommApi";
@@ -211,7 +212,7 @@ export class RomManager {
     // first we need to check if we already have the file downloaded
     console.log("[LAUNCH]" + `Launching ROM: ${rom.name} (ID: ${rom.id})`);
 
-    let localRom;
+    let localRom: LocalRom | undefined;
     let isRomOkay = false;
     if (rom && rom.id) {
       localRom = this.localRoms.find((r) => r.id === rom.id);
@@ -266,33 +267,55 @@ export class RomManager {
       }
 
       // if we've downloaded a zip file among the files, we need to extract it
-      const zipFiles = localRom.files.filter((f) => f.file_name.endsWith(".zip"));
+      const zipFiles = localRom!.files.filter((f) => f.file_name.endsWith(".zip"));
       for (const zipFile of zipFiles) {
-        const zipFilePath = path.join(localRom.localPath, zipFile.file_name);
-        const zip = new AdmZip(zipFilePath);
-        let zipEntries = await zip.getEntries();
-        console.log("[LAUNCH]" + `Extracting zip file: ${zipFilePath} with ${zipEntries.length} entries`);
+        const zipFilePath = path.join(localRom!.localPath, zipFile.file_name);
+        console.log("[LAUNCH]" + `Extracting zip file (streaming): ${zipFilePath}`);
 
-        // extract all entries in the root of the localRom folder
-        await zip.extractAllTo(localRom.localPath, true);
+        // Use streaming extraction for large files
+        try {
+          await new Promise<void>((resolve, reject) => {
+            fs.createReadStream(zipFilePath)
+              .pipe(unzipper.Extract({ path: localRom!.localPath }))
+              .on("close", () => {
+                console.log("[LAUNCH]" + `Zip extraction completed: ${zipFilePath}`);
+                resolve();
+              })
+              .on("error", (err: any) => {
+                console.error("[LAUNCH]" + `Zip extraction error: ${err.message}`);
+                reject(err);
+              });
+          });
 
-        for (const entry of zipEntries) {
-          console.log("[LAUNCH]" + `Extracted entry: ${entry.entryName} to ${localRom.localPath}`);
-          if (!localRom.localFiles) localRom.localFiles = [];
-          localRom.localFiles.push(path.join(localRom.localPath, entry.entryName));
+          // Get list of extracted files for tracking
+          if (!localRom!.localFiles) localRom!.localFiles = [];
+          try {
+            const allFiles = fs.readdirSync(localRom!.localPath, { recursive: true }) as string[];
+            localRom!.localFiles = allFiles.map((f: string) => path.join(localRom!.localPath, f)).filter((f: string) => fs.statSync(f).isFile());
+            console.log("[LAUNCH]" + `Tracked ${localRom!.localFiles?.length || 0} extracted files`);
+          } catch (err: any) {
+            console.warn("[LAUNCH]" + `Failed to track extracted files: ${err.message}`);
+          }
+        } catch (extractError: any) {
+          console.error("[LAUNCH]" + `Failed to extract zip file: ${extractError.message}`);
+          throw new Error(`Failed to extract ZIP file: ${extractError.message}`);
         }
 
-        // delete the zip file after extraction
-        // await fs.promises.unlink(zipFilePath);
-        // console.log("[LAUNCH]" + `Extracted and deleted zip file: ${zipFilePath}`);
+        // Optionally delete the zip file after successful extraction
+        // try {
+        //   await fs.promises.unlink(zipFilePath);
+        //   console.log("[LAUNCH]" + `Deleted zip file: ${zipFilePath}`);
+        // } catch (deleteError: any) {
+        //   console.warn("[LAUNCH]" + `Failed to delete zip file: ${deleteError.message}`);
+        // }
       }
 
-      let isValid = await this.checkRomIntegrity(localRom);
+      let isValid = await this.checkRomIntegrity(localRom!);
       if (!isValid) {
-        console.log("[LAUNCH]" + `Downloaded ROM is invalid: ${localRom.name} (ID: ${localRom.id})`);
+        console.log("[LAUNCH]" + `Downloaded ROM is invalid: ${localRom!.name} (ID: ${localRom!.id})`);
         throw new Error("Downloaded ROM is invalid");
       } else {
-        console.log("[LAUNCH]" + `Downloaded ROM is valid: ${localRom.name} (ID: ${localRom.id})`);
+        console.log("[LAUNCH]" + `Downloaded ROM is valid: ${localRom!.name} (ID: ${localRom!.id})`);
         if (onDownloadComplete) {
           onDownloadComplete(rom);
         }

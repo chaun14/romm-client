@@ -1,29 +1,44 @@
 import crypto from "crypto";
 import CRC32 from "crc-32";
 import fs from "fs/promises";
+import fsSync from "fs";
 
 /**
  * Hash calculation utilities for ROM integrity verification
+ * Uses streaming for large files to avoid memory issues
  */
 export class HashCalculator {
   /**
-   * Calculate CRC32 hash of a file
+   * Calculate CRC32 hash of a file (uses streaming for large files)
    */
   static async calculateCRC32(filePath: string) {
     try {
-      const data = await fs.readFile(filePath);
+      const CHUNK_SIZE = 64 * 1024 * 1024; // 64MB chunks
+      const fileHandle = await fs.open(filePath, "r");
+      const stats = await fileHandle.stat();
+      const fileSize = stats.size;
 
-      // Use crc-32 package (returns signed 32-bit integer)
-      const crcValue = CRC32.buf(data);
+      let crcValue = 0;
+      let bytesRead = 0;
+
+      const buffer = Buffer.alloc(CHUNK_SIZE);
+
+      while (bytesRead < fileSize) {
+        const { bytesRead: chunkBytes } = await fileHandle.read(buffer, 0, CHUNK_SIZE, bytesRead);
+        if (chunkBytes === 0) break;
+
+        const chunk = buffer.slice(0, chunkBytes);
+        crcValue = CRC32.buf(chunk, crcValue);
+        bytesRead += chunkBytes;
+      }
+
+      await fileHandle.close();
 
       // Convert signed to unsigned 32-bit integer
       const unsignedCrc = crcValue >>> 0;
-
-      // Apply crc32_to_hex conversion (same as RomM)
       const crcHex = unsignedCrc.toString(16).toLowerCase().padStart(8, "0");
 
-      console.log(`[CRC32] crc-32 result: ${crcValue} (signed), ${unsignedCrc} (unsigned), hex: ${crcHex}`);
-
+      console.log(`[CRC32] Calculated for ${fileSize} bytes: ${crcHex}`);
       return crcHex;
     } catch (error: any) {
       throw new Error(`Failed to calculate CRC32 for ${filePath}: ${error.message}`);
@@ -31,27 +46,47 @@ export class HashCalculator {
   }
 
   /**
-   * Calculate MD5 hash of a file
+   * Calculate MD5 hash of a file using streaming
    */
   static async calculateMD5(filePath: string) {
     try {
-      const data = await fs.readFile(filePath);
-      return crypto.createHash("md5").update(data).digest("hex");
+      return await this.calculateHashStreaming(filePath, "md5");
     } catch (error: any) {
       throw new Error(`Failed to calculate MD5 for ${filePath}: ${error.message}`);
     }
   }
 
   /**
-   * Calculate SHA1 hash of a file
+   * Calculate SHA1 hash of a file using streaming
    */
   static async calculateSHA1(filePath: string) {
     try {
-      const data = await fs.readFile(filePath);
-      return crypto.createHash("sha1").update(data).digest("hex");
+      return await this.calculateHashStreaming(filePath, "sha1");
     } catch (error: any) {
       throw new Error(`Failed to calculate SHA1 for ${filePath}: ${error.message}`);
     }
+  }
+
+  /**
+   * Generic hash calculation using streaming
+   */
+  private static async calculateHashStreaming(filePath: string, algorithm: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const hash = crypto.createHash(algorithm);
+      const stream = fsSync.createReadStream(filePath, { highWaterMark: 64 * 1024 * 1024 }); // 64MB chunks
+
+      stream.on("data", (chunk: Buffer) => {
+        hash.update(chunk);
+      });
+
+      stream.on("end", () => {
+        resolve(hash.digest("hex"));
+      });
+
+      stream.on("error", (err: any) => {
+        reject(new Error(`Stream error while calculating ${algorithm}: ${err.message}`));
+      });
+    });
   }
 
   /**

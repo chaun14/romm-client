@@ -3,7 +3,7 @@ import path from "path";
 import { spawn } from "child_process";
 
 import { RommClient } from "../RomMClient";
-import { Emulator, DolphinEmulator, PPSSPPEmulator, EmulatorConfig } from "./emulators";
+import { Emulator, DolphinEmulator, PPSSPPEmulator, PCSX2Emulator, EmulatorConfig } from "./emulators";
 
 type EmulatorClass = new (config: EmulatorConfig) => Emulator;
 
@@ -47,6 +47,16 @@ let EMULATORS: Record<string, EmulatorSpec> = {
     defaultArgs: DolphinEmulator.getDefaultArgs(),
     extensions: DolphinEmulator.getExtensions(),
     supportsSaves: DolphinEmulator.getSupportsSaves(),
+    path: "",
+  },
+  pcsx2: {
+    name: "PCSX2",
+    class: PCSX2Emulator,
+    platforms: PCSX2Emulator.getPlatforms(),
+    rommSlug: PCSX2Emulator.getRommSlug(),
+    defaultArgs: PCSX2Emulator.getDefaultArgs(),
+    extensions: PCSX2Emulator.getExtensions(),
+    supportsSaves: PCSX2Emulator.getSupportsSaves(),
     path: "",
   },
 };
