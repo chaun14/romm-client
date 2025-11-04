@@ -349,7 +349,7 @@ export class RomManager {
       console.log("[LAUNCH FLOW] Using emulator:", emulator.constructor.name);
 
       // Special handling for integrated emulator - bypass all local processing
-      if (emulatorKey === 'rommIntegrated') {
+      if (emulatorKey === "rommIntegrated") {
         console.log("[LAUNCH FLOW] Using integrated emulator - bypassing local processing");
 
         // Send progress update that ROM is ready
@@ -358,7 +358,7 @@ export class RomManager {
           percent: 100,
           downloaded: "0.00",
           total: "0.00",
-          message: "ROM ready for integrated emulator"
+          message: "ROM ready for integrated emulator",
         });
 
         // Call IPC to open the integrated emulator URL directly

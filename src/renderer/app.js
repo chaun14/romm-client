@@ -301,8 +301,8 @@ async function displayRoms(roms) {
             buttonText = '⬇️ Download';
         }
 
-    // Generate action button HTML using the helper function
-    const actionButtonHtml = generateActionButtonHtml(rom, rom.isCached, rom.isPlatformSupported, rom.hasLocalEmulator, rom.hasIntegratedEmulator, rom.emulatorMessage);
+        // Generate action button HTML using the helper function
+        const actionButtonHtml = generateActionButtonHtml(rom, rom.isCached, rom.isPlatformSupported, rom.hasLocalEmulator, rom.hasIntegratedEmulator, rom.emulatorMessage);
 
         return `
       <div class="rom-card ${rom.isCached ? 'cached' : ''}" data-rom-id="${rom.id}" title="${rom.fs_name || rom.name}">
@@ -338,14 +338,14 @@ async function displayRoms(roms) {
             e.stopPropagation();
             const dropdown = toggle.closest('.action-dropdown');
             const menu = dropdown.querySelector('.action-dropdown-menu');
-            
+
             // Close other dropdowns
             document.querySelectorAll('.action-dropdown-menu.show').forEach(otherMenu => {
                 if (otherMenu !== menu) {
                     otherMenu.classList.remove('show');
                 }
             });
-            
+
             // Toggle this dropdown
             menu.classList.toggle('show');
         });
@@ -358,11 +358,11 @@ async function displayRoms(roms) {
             const action = item.dataset.action;
             const romId = parseInt(item.dataset.romId);
             const rom = sortedRoms.find(r => r.id === romId);
-            
+
             // Close dropdown
             const menu = item.closest('.action-dropdown-menu');
             menu.classList.remove('show');
-            
+
             // Handle action
             if (action === 'download') {
                 showRomDetail(rom);

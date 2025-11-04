@@ -457,7 +457,8 @@ body {
 
 .action-dropdown-toggle {
     position: relative;
-    padding-right: 2rem; /* Space for dropdown arrow */
+    padding-right: 2rem;
+    /* Space for dropdown arrow */
 }
 
 .action-dropdown-toggle::after {

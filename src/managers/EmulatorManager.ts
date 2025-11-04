@@ -129,8 +129,8 @@ export class EmulatorManager {
     }
 
     // Exception for integrated emulator - it's always configured
-    if (configs['rommIntegrated']) {
-      configs['rommIntegrated'].path = 'integrated'; // Indicate it's configured
+    if (configs["rommIntegrated"]) {
+      configs["rommIntegrated"].path = "integrated"; // Indicate it's configured
     }
 
     return configs;
@@ -179,8 +179,8 @@ export class EmulatorManager {
     }
 
     // Exception for integrated emulator - it doesn't need a path and is always configured
-    if (emulatorKey === 'rommIntegrated') {
-      emulatorPath = 'integrated'; // Dummy path to indicate it's configured
+    if (emulatorKey === "rommIntegrated") {
+      emulatorPath = "integrated"; // Dummy path to indicate it's configured
     }
 
     if (!emulatorPath) {

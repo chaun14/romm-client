@@ -619,7 +619,7 @@ export class IPCManager {
 
           if (result.success) {
             // Special handling for integrated emulator - open URL directly instead of sending event
-            if (result.integrated || result.emulatorKey === 'rommIntegrated') {
+            if (result.integrated || result.emulatorKey === "rommIntegrated") {
               console.log("[IPC] Detected integrated emulator result, opening URL directly");
               return await this.launchWithIntegratedEmulator(rom);
             }
@@ -711,7 +711,6 @@ export class IPCManager {
         // Multiple emulators available, show choice modal
         return await this.showEmulatorChoiceModal(rom, availableEmulators);
       }
-
     } catch (error: any) {
       console.error(`[IPCManager] Error launching ROM ${rom.name}:`, error);
       return { success: false, error: error.message };
@@ -731,7 +730,7 @@ export class IPCManager {
         const configs = this.emulatorManager.getConfigurations();
         const config = configs[emulatorKey];
 
-        if (emulatorKey === 'rommIntegrated' || (config && config.path)) {
+        if (emulatorKey === "rommIntegrated" || (config && config.path)) {
           availableEmulators.push(emulatorKey);
         }
       }
@@ -748,14 +747,13 @@ export class IPCManager {
       console.log(`[IPCManager] Launching ROM ${rom.name} with emulator ${emulatorKey}`);
 
       // For integrated emulator, handle differently
-      if (emulatorKey === 'rommIntegrated') {
+      if (emulatorKey === "rommIntegrated") {
         return await this.launchWithIntegratedEmulator(rom);
       }
 
       // For external emulators, use the existing flow
       // This would need to be implemented based on the existing save/emulator logic
       return { success: false, error: "External emulator launch not yet implemented" };
-
     } catch (error: any) {
       console.error(`[IPCManager] Error launching ROM with ${emulatorKey}:`, error);
       return { success: false, error: error.message };
@@ -769,7 +767,7 @@ export class IPCManager {
     const supportedEmulators = this.emulatorManager.getSupportedEmulators();
 
     // Prepare emulator options for the modal
-    const emulatorOptions = availableEmulators.map(emulatorKey => {
+    const emulatorOptions = availableEmulators.map((emulatorKey) => {
       const emulator = supportedEmulators[emulatorKey];
       return {
         key: emulatorKey,
@@ -782,7 +780,7 @@ export class IPCManager {
     // Send event to renderer to show modal
     const mainWindow = this.rommClient;
     if (mainWindow) {
-      mainWindow.webContents.send('emulator:show-choice-modal', {
+      mainWindow.webContents.send("emulator:show-choice-modal", {
         rom: rom,
         emulators: emulatorOptions,
       });
@@ -866,10 +864,10 @@ export class IPCManager {
       // Send launch event to main window
       const mainWindow = this.rommClient;
       if (mainWindow) {
-        mainWindow.webContents.send('rom:launched', {
+        mainWindow.webContents.send("rom:launched", {
           romId: rom.id,
           romName: rom.name,
-          emulator: 'Romm Integrated',
+          emulator: "Romm Integrated",
           pid: null, // No process ID for integrated emulator
         });
       }
@@ -879,7 +877,6 @@ export class IPCManager {
         message: `ROM ${rom.name} launched in integrated emulator`,
         integrated: true,
       };
-
     } catch (error: any) {
       console.error(`[IPCManager] Error launching with integrated emulator:`, error);
       return { success: false, error: error.message };
