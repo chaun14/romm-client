@@ -12,7 +12,6 @@ This project is not affliated with the RomM project. It is a third-party client 
 
 <img width="733" height="490" alt="screenshot1" src="https://github.com/user-attachments/assets/3cc84c1d-b571-4529-84fb-61061e815e62" />
 
-
 ## Features
 
 - Browse and launch ROMs from your RomM server
@@ -25,3 +24,4 @@ This project is not affliated with the RomM project. It is a third-party client 
 - PPSSPP (PlayStation Portable)
 - PCSX2 (PlayStation 2) ⚠️ beta
 - Dolphin (GameCube/Wii)
+- RomM's Built-in EmulatorJS system (web-based emulators)
