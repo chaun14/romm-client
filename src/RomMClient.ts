@@ -68,6 +68,20 @@ export class RommClient extends BrowserWindow {
 
     this.setupFolders();
 
+    // Prevent browser navigation (including back button) from navigating away from the app
+    this.webContents.on("will-navigate", (event, url) => {
+      // Only allow navigation within the app's local files
+      if (!url.startsWith("file://")) {
+        event.preventDefault();
+        console.log("Blocked navigation attempt to:", url);
+      }
+    });
+
+    // Disable mouse back/forward buttons
+    this.webContents.on("dom-ready", () => {
+      this.disableMouseNavigation();
+    });
+
     // Recover any lost saves from previous sessions
     if (this.saveManager) {
       console.log("Checking for lost saves from previous sessions...");
@@ -378,5 +392,17 @@ export class RommClient extends BrowserWindow {
 
   public async sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private disableMouseNavigation(): void {
+    const disableNavigationScript = `
+      document.addEventListener('mouseup', (event) => {
+        if (event.button === 3 || event.button === 4) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      });
+    `;
+    this.webContents.executeJavaScript(disableNavigationScript);
   }
 }
