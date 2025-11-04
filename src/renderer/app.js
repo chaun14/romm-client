@@ -2284,6 +2284,23 @@ function setupModalDropdownListeners() {
 setupModalDropdownListeners();
 
 /**
+ * Handle ROM action from dropdown or button clicks
+ */
+async function handleRomAction(action, rom) {
+    console.log(`[FRONTEND] handleRomAction called with action: ${action}, rom: ${rom.name}`);
+
+    if (action === 'download') {
+        // Start ROM download
+        await launchRom(rom);
+    } else if (action === 'integrated') {
+        // Launch with integrated emulator (EmulatorJS)
+        await launchRomIntegrated(rom);
+    } else {
+        console.warn(`[FRONTEND] Unknown action: ${action}`);
+    }
+}
+
+/**
  * Generate HTML for action button with dropdown
  */
 /**
@@ -2302,6 +2319,32 @@ async function showRomDetail(rom) {
     const coverUrl = rom.path_cover_big
         ? `${baseUrl}${rom.path_cover_big}`
         : rom.url_cover || '';
+
+    // Determine action buttons based on emulator availability
+    let actionButtonsHtml = '';
+
+    if (rom.hasIntegratedEmulator && !rom.isCached) {
+        // Only integrated emulator available - show launch button
+        actionButtonsHtml = `
+            <button class="btn btn-primary btn-launch-integrated" data-rom-id="${rom.id}">
+                🎮 Launch with EmulatorJS
+            </button>
+        `;
+    } else if (!rom.isCached) {
+        // No emulators available or only local emulator - show download button
+        actionButtonsHtml = `
+            <button class="btn btn-primary btn-download-rom" data-rom-id="${rom.id}">
+                📥 Download ROM
+            </button>
+        `;
+    } else {
+        // ROM is cached - show launch button
+        actionButtonsHtml = `
+            <button class="btn btn-primary btn-launch-rom" data-rom-id="${rom.id}">
+                ▶️ Launch ROM
+            </button>
+        `;
+    }
 
     // Create modal content
     modalContent.innerHTML = `
@@ -2322,21 +2365,35 @@ async function showRomDetail(rom) {
                         ${rom.summary ? `<p><strong>Description:</strong> ${rom.summary}</p>` : ''}
                     </div>
                     <div class="rom-actions">
-                        <button class="btn btn-primary btn-download-rom" data-rom-id="${rom.id}">
-                            📥 Download ROM
-                        </button>
+                        ${actionButtonsHtml}
                     </div>
                 </div>
             </div>
         </div>
     `;
 
-    // Add event listener for download button
+    // Add event listeners for action buttons
     const downloadBtn = modalContent.querySelector('.btn-download-rom');
     if (downloadBtn) {
         downloadBtn.addEventListener('click', async () => {
             modal.classList.remove('show');
             await handleRomAction('download', rom);
+        });
+    }
+
+    const launchIntegratedBtn = modalContent.querySelector('.btn-launch-integrated');
+    if (launchIntegratedBtn) {
+        launchIntegratedBtn.addEventListener('click', async () => {
+            modal.classList.remove('show');
+            await handleRomAction('integrated', rom);
+        });
+    }
+
+    const launchBtn = modalContent.querySelector('.btn-launch-rom');
+    if (launchBtn) {
+        launchBtn.addEventListener('click', async () => {
+            modal.classList.remove('show');
+            await launchRom(rom);
         });
     }
 
