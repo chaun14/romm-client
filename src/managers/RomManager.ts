@@ -339,15 +339,7 @@ export class RomManager {
     try {
       console.log("[LAUNCH FLOW] Starting complete launch flow for ROM:", rom.name);
 
-      // Step 1: Ensure ROM is available (download if needed)
-      const launchResult = await this.launchRom(rom, onProgress, () => {}, onProgress);
-      if (!launchResult.success) {
-        throw new Error("Failed to prepare ROM for launch");
-      }
-
-      const { localRom } = launchResult;
-
-      // Step 2: Find appropriate emulator for this ROM
+      // Step 2: Find appropriate emulator for this ROM (moved up before ROM preparation)
       console.log("[LAUNCH FLOW] Finding emulator for platform:", rom.platform_slug);
       const { emulator, emulatorKey } = this.findEmulatorForRomWithKey(rom, emulatorManager);
       if (!emulator) {
@@ -355,6 +347,37 @@ export class RomManager {
       }
 
       console.log("[LAUNCH FLOW] Using emulator:", emulator.constructor.name);
+
+      // Special handling for integrated emulator - bypass all local processing
+      if (emulatorKey === 'rommIntegrated') {
+        console.log("[LAUNCH FLOW] Using integrated emulator - bypassing local processing");
+
+        // Send progress update that ROM is ready
+        onProgress({
+          step: "download",
+          percent: 100,
+          downloaded: "0.00",
+          total: "0.00",
+          message: "ROM ready for integrated emulator"
+        });
+
+        // Call IPC to open the integrated emulator URL directly
+        // This will be handled by IPCManager.launchWithIntegratedEmulator
+        return {
+          success: true,
+          message: `ROM ${rom.name} launched in integrated emulator`,
+          integrated: true,
+          emulatorKey: emulatorKey,
+        };
+      }
+
+      // Step 1: Ensure ROM is available (download if needed) - only for external emulators
+      const launchResult = await this.launchRom(rom, onProgress, () => {}, onProgress);
+      if (!launchResult.success) {
+        throw new Error("Failed to prepare ROM for launch");
+      }
+
+      const { localRom } = launchResult;
 
       // Step 3: Setup save directory
       const savesFolder = this.rommClient.getSavesFolder();

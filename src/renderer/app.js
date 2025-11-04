@@ -360,7 +360,7 @@ async function showRomDetail(rom) {
     for (const [emulatorKey, emulator] of Object.entries(supportedEmulators)) {
         if (emulator.platforms.includes(platform)) {
             isPlatformSupported = true;
-            if (emulatorConfigs[emulatorKey] && emulatorConfigs[emulatorKey].path) {
+            if (emulatorConfigs[emulatorKey] && emulatorConfigs[emulatorKey].path || emulatorKey === 'rommIntegrated') {
                 isEmulatorConfigured = true;
             } else {
                 emulatorMessage = `Please configure ${emulator.name} emulator`;
@@ -1018,7 +1018,7 @@ async function displayPlatforms(platforms) {
         for (const [emulatorKey, emulator] of Object.entries(supportedEmulators)) {
             if (emulator.platforms.includes(platformKey)) {
                 isPlatformSupported = true;
-                if (emulatorConfigs[emulatorKey] && emulatorConfigs[emulatorKey].path) {
+                if (emulatorConfigs[emulatorKey] && emulatorConfigs[emulatorKey].path || emulatorKey === 'rommIntegrated') {
                     isEmulatorConfigured = true;
                 } else {
                     platformDisabled = 'disabled';
@@ -1571,6 +1571,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         showSaveChoiceModal(saveData, { rom: saveData.rom });
     });
 
+    // Attach emulator choice modal listener
+    window.electronEvents.removeEmulatorChoiceListener?.();
+    window.electronEvents.onEmulatorChoiceModal((emulatorData) => {
+        showEmulatorChoiceModal(emulatorData);
+    });
+
     // Attach ROM launch event listeners
     window.electronEvents.removeRomLaunchListeners?.();
     window.electronEvents.onRomLaunched((data) => {
@@ -1639,8 +1645,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Setup update event listeners
     setupUpdateListeners();
 
-    // Setup update view event listeners
-    setupUpdateViewListeners();
+    // Setup modal close handlers
+    setupModalHandlers();
 
     // Load saved server URL into the input field
     const savedUrl = await window.electronAPI.config.getBaseUrl();
@@ -2061,6 +2067,113 @@ function displayPaginationControls() {
                 }
             }
         });
+    });
+}
+
+/**
+ * Show emulator choice modal
+ */
+function showEmulatorChoiceModal(emulatorData) {
+    console.log('[FRONTEND] showEmulatorChoiceModal called with:', emulatorData);
+    const modal = document.getElementById('emulator-choice-modal');
+    const optionsContainer = document.getElementById('emulator-options');
+
+    // Force hide modal first to ensure clean state
+    modal.classList.remove('show');
+
+    // Clear previous options
+    optionsContainer.innerHTML = '';
+
+    // Create emulator options
+    emulatorData.emulators.forEach(emulator => {
+        const optionDiv = document.createElement('div');
+        optionDiv.className = 'emulator-option';
+        optionDiv.innerHTML = `
+            <h3>${emulator.name}</h3>
+            <p>Supports: ${emulator.platforms.join(', ').toUpperCase()}</p>
+            ${emulator.supportsSaves ? '<p class="emulator-note">💾 Supports save files</p>' : '<p class="emulator-note">🚫 No save file support</p>'}
+        `;
+        optionDiv.addEventListener('click', () => selectEmulatorFromModal(emulator.key, emulatorData.rom));
+        optionsContainer.appendChild(optionDiv);
+    });
+
+    // Show modal
+    modal.classList.add('show');
+
+    // Close other modals
+    const romModal = document.getElementById('rom-modal');
+    if (romModal) {
+        romModal.classList.remove('show');
+    }
+
+    const saveModal = document.getElementById('save-choice-modal');
+    if (saveModal) {
+        saveModal.classList.remove('show');
+    }
+
+    const downloadModal = document.getElementById('download-progress-modal');
+    if (downloadModal) {
+        downloadModal.classList.remove('show');
+    }
+}
+
+/**
+ * Handle emulator selection from modal
+ */
+async function selectEmulatorFromModal(emulatorKey, rom) {
+    console.log(`[FRONTEND] selectEmulatorFromModal called with emulator: ${emulatorKey}, rom: ${rom.name}`);
+
+    // Hide modal
+    const modal = document.getElementById('emulator-choice-modal');
+    modal.classList.remove('show');
+
+    // Send the choice back to main process
+    window.electronEvents.sendEmulatorChoice(emulatorKey, rom);
+}
+
+/**
+ * Setup modal event handlers
+ */
+function setupModalHandlers() {
+    // ROM modal close
+    const romModal = document.getElementById('rom-modal');
+    const romModalClose = romModal?.querySelector('.modal-close');
+    if (romModalClose) {
+        romModalClose.addEventListener('click', () => {
+            romModal.classList.remove('show');
+        });
+    }
+
+    // Save choice modal cancel
+    const saveChoiceCancel = document.getElementById('save-choice-cancel');
+    if (saveChoiceCancel) {
+        saveChoiceCancel.addEventListener('click', () => {
+            document.getElementById('save-choice-modal').classList.remove('show');
+        });
+    }
+
+    // Emulator choice modal cancel
+    const emulatorChoiceCancel = document.getElementById('emulator-choice-cancel');
+    if (emulatorChoiceCancel) {
+        emulatorChoiceCancel.addEventListener('click', () => {
+            document.getElementById('emulator-choice-modal').classList.remove('show');
+        });
+    }
+
+    // Download progress modal cancel
+    const cancelDownloadBtn = document.getElementById('cancel-download-btn');
+    if (cancelDownloadBtn) {
+        cancelDownloadBtn.addEventListener('click', () => {
+            // For now, just hide the modal - actual cancellation would need backend support
+            document.getElementById('download-progress-modal').classList.remove('show');
+        });
+    }
+
+    // Close modals when clicking outside
+    document.addEventListener('click', (e) => {
+        if (e.target.classList.contains('modal')) {
+            e.target.classList.remove('show');
+        }
     });
 }
 

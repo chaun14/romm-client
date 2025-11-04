@@ -3,7 +3,7 @@ import path from "path";
 import { spawn } from "child_process";
 
 import { RommClient } from "../RomMClient";
-import { Emulator, DolphinEmulator, PPSSPPEmulator, PCSX2Emulator, EmulatorConfig } from "./emulators";
+import { Emulator, DolphinEmulator, PPSSPPEmulator, PCSX2Emulator, RommIntegratedEmulator, EmulatorConfig } from "./emulators";
 
 type EmulatorClass = new (config: EmulatorConfig) => Emulator;
 
@@ -58,6 +58,16 @@ let EMULATORS: Record<string, EmulatorSpec> = {
     extensions: PCSX2Emulator.getExtensions(),
     supportsSaves: PCSX2Emulator.getSupportsSaves(),
     path: "",
+  },
+  rommIntegrated: {
+    name: "Romm Integrated",
+    class: RommIntegratedEmulator,
+    platforms: RommIntegratedEmulator.getPlatforms(),
+    rommSlug: RommIntegratedEmulator.getRommSlug(),
+    defaultArgs: RommIntegratedEmulator.getDefaultArgs(),
+    extensions: RommIntegratedEmulator.getExtensions(),
+    supportsSaves: RommIntegratedEmulator.getSupportsSaves(),
+    path: "", // No path needed for integrated emulator
   },
 };
 
@@ -118,6 +128,11 @@ export class EmulatorManager {
       console.log("EmulatorManager: no saved settings found");
     }
 
+    // Exception for integrated emulator - it's always configured
+    if (configs['rommIntegrated']) {
+      configs['rommIntegrated'].path = 'integrated'; // Indicate it's configured
+    }
+
     return configs;
   }
 
@@ -161,6 +176,11 @@ export class EmulatorManager {
       if (savedConfig) {
         emulatorPath = savedConfig.path;
       }
+    }
+
+    // Exception for integrated emulator - it doesn't need a path and is always configured
+    if (emulatorKey === 'rommIntegrated') {
+      emulatorPath = 'integrated'; // Dummy path to indicate it's configured
     }
 
     if (!emulatorPath) {

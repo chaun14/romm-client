@@ -184,6 +184,17 @@ contextBridge.exposeInMainWorld('electronEvents', {
         ipcRenderer.removeAllListeners('rom:launch-failed');
     },
 
+    // Emulator choice modal events
+    onEmulatorChoiceModal: (callback) => {
+        ipcRenderer.on('emulator:show-choice-modal', (event, data) => callback(data));
+    },
+    sendEmulatorChoice: (emulatorKey, rom) => {
+        ipcRenderer.send('emulator:choice-selected', { emulatorKey, rom });
+    },
+    removeEmulatorChoiceListener: () => {
+        ipcRenderer.removeAllListeners('emulator:show-choice-modal');
+    },
+
     // Update events
     onUpdateAvailable: (callback) => {
         ipcRenderer.on('update-available', (event, data) => callback(data));

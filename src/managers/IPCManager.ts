@@ -618,6 +618,12 @@ export class IPCManager {
           const result = await this.rommClient.romManager.launchRomWithSavesFlow(rom, this.rommClient.saveManager, this.emulatorManager, onProgress, onSaveChoice);
 
           if (result.success) {
+            // Special handling for integrated emulator - open URL directly instead of sending event
+            if (result.integrated || result.emulatorKey === 'rommIntegrated') {
+              console.log("[IPC] Detected integrated emulator result, opening URL directly");
+              return await this.launchWithIntegratedEmulator(rom);
+            }
+
             event.sender.send("rom:launched", {
               romId: rom.id,
               romName: rom.name,
@@ -678,5 +684,214 @@ export class IPCManager {
     ipcMain.handle("update:install", () => {
       autoUpdater.quitAndInstall(false, true);
     });
+  }
+
+  /**
+   * Handle ROM launch with emulator selection
+   */
+  private async handleRomLaunch(rom: any, emulatorPath?: string) {
+    try {
+      console.log(`[IPCManager] Launching ROM: ${rom.name} (ID: ${rom.id})`);
+
+      // Determine the platform slug for this ROM
+      const platformSlug = rom.platform_slug || rom.platform;
+
+      // Get available emulators for this platform
+      const availableEmulators = this.getAvailableEmulatorsForPlatform(platformSlug);
+
+      if (availableEmulators.length === 0) {
+        return { success: false, error: `No emulator configured for platform ${platformSlug}` };
+      }
+
+      if (availableEmulators.length === 1) {
+        // Only one emulator available, launch directly
+        const emulatorKey = availableEmulators[0];
+        return await this.launchRomWithEmulator(rom, emulatorKey);
+      } else {
+        // Multiple emulators available, show choice modal
+        return await this.showEmulatorChoiceModal(rom, availableEmulators);
+      }
+
+    } catch (error: any) {
+      console.error(`[IPCManager] Error launching ROM ${rom.name}:`, error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Get available emulators for a platform
+   */
+  private getAvailableEmulatorsForPlatform(platformSlug: string): string[] {
+    const supportedEmulators = this.emulatorManager.getSupportedEmulators();
+    const availableEmulators: string[] = [];
+
+    for (const [emulatorKey, emulator] of Object.entries(supportedEmulators)) {
+      if (emulator.platforms.includes(platformSlug)) {
+        // Check if emulator is configured (has path or is integrated)
+        const configs = this.emulatorManager.getConfigurations();
+        const config = configs[emulatorKey];
+
+        if (emulatorKey === 'rommIntegrated' || (config && config.path)) {
+          availableEmulators.push(emulatorKey);
+        }
+      }
+    }
+
+    return availableEmulators;
+  }
+
+  /**
+   * Launch ROM with specific emulator
+   */
+  private async launchRomWithEmulator(rom: any, emulatorKey: string) {
+    try {
+      console.log(`[IPCManager] Launching ROM ${rom.name} with emulator ${emulatorKey}`);
+
+      // For integrated emulator, handle differently
+      if (emulatorKey === 'rommIntegrated') {
+        return await this.launchWithIntegratedEmulator(rom);
+      }
+
+      // For external emulators, use the existing flow
+      // This would need to be implemented based on the existing save/emulator logic
+      return { success: false, error: "External emulator launch not yet implemented" };
+
+    } catch (error: any) {
+      console.error(`[IPCManager] Error launching ROM with ${emulatorKey}:`, error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Show emulator choice modal to user
+   */
+  private async showEmulatorChoiceModal(rom: any, availableEmulators: string[]) {
+    const supportedEmulators = this.emulatorManager.getSupportedEmulators();
+
+    // Prepare emulator options for the modal
+    const emulatorOptions = availableEmulators.map(emulatorKey => {
+      const emulator = supportedEmulators[emulatorKey];
+      return {
+        key: emulatorKey,
+        name: emulator.name,
+        platforms: emulator.platforms,
+        supportsSaves: emulator.supportsSaves,
+      };
+    });
+
+    // Send event to renderer to show modal
+    const mainWindow = this.rommClient;
+    if (mainWindow) {
+      mainWindow.webContents.send('emulator:show-choice-modal', {
+        rom: rom,
+        emulators: emulatorOptions,
+      });
+    }
+
+    return { success: true, waitingForChoice: true };
+  }
+
+  /**
+   * Launch ROM with integrated emulator (EmulatorJS)
+   */
+  private async launchWithIntegratedEmulator(rom: any) {
+    try {
+      console.log(`[IPCManager] Launching ROM ${rom.name} with integrated emulator`);
+
+      // Get the base URL for RomM
+      const baseUrl = this.rommClient.rommApi?.getBaseUrl();
+      if (!baseUrl) {
+        return { success: false, error: "RomM base URL not configured" };
+      }
+
+      // Construct the EmulatorJS URL
+      const emulatorJsUrl = `${baseUrl}/rom/${rom.id}/ejs`;
+      console.log(`[IPCManager] Opening EmulatorJS URL: ${emulatorJsUrl}`);
+
+      // Create a new browser window for the integrated emulator
+      const emulatorWindow = new BrowserWindow({
+        width: 1280,
+        height: 720,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+        },
+        show: true,
+        title: `RomM - ${rom.name}`,
+        modal: false,
+        parent: this.rommClient as any,
+      });
+
+      // Inject session cookies before loading the page (similar to createRommWebWindow)
+      emulatorWindow.webContents.once("dom-ready", async () => {
+        try {
+          // Get session cookies from RomM API
+          const sessionCookies = this.rommClient.rommApi?.sessionToken + ";";
+          if (sessionCookies) {
+            // Parse and inject cookies
+            const cookieStrings = sessionCookies.split("; ");
+            for (const cookieStr of cookieStrings) {
+              const [nameValue] = cookieStr.split(";");
+              const [name, value] = nameValue.split("=");
+
+              if (name && value) {
+                // Get domain from base URL
+                const urlObj = new URL(baseUrl);
+                const domain = urlObj.hostname;
+
+                await emulatorWindow.webContents.session.cookies.set({
+                  url: baseUrl,
+                  name: name,
+                  value: value,
+                  domain: domain,
+                  path: "/",
+                  httpOnly: false,
+                  secure: urlObj.protocol === "https:",
+                });
+              }
+            }
+            console.log("[IPCManager] RomM session cookies injected successfully for integrated emulator");
+          }
+
+          // Refresh the page to apply cookies
+          emulatorWindow.webContents.reload();
+        } catch (error) {
+          console.error("[IPCManager] Failed to inject cookies for integrated emulator:", error);
+        }
+      });
+
+      // Load the EmulatorJS URL
+      emulatorWindow.loadURL(emulatorJsUrl);
+
+      // Send launch event to main window
+      const mainWindow = this.rommClient;
+      if (mainWindow) {
+        mainWindow.webContents.send('rom:launched', {
+          romId: rom.id,
+          romName: rom.name,
+          emulator: 'Romm Integrated',
+          pid: null, // No process ID for integrated emulator
+        });
+      }
+
+      return {
+        success: true,
+        message: `ROM ${rom.name} launched in integrated emulator`,
+        integrated: true,
+      };
+
+    } catch (error: any) {
+      console.error(`[IPCManager] Error launching with integrated emulator:`, error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Handle emulator launch with save choice (legacy method)
+   */
+  private async handleEmulatorLaunchWithSaveChoice(romData: any, saveChoice: string, saveId?: number) {
+    // This is the legacy method for handling save choices
+    // Implementation would depend on the existing save/emulator logic
+    return { success: false, error: "Not yet implemented" };
   }
 }
