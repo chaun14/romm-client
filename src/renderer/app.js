@@ -43,6 +43,20 @@ document.getElementById('settings-logout-btn').addEventListener('click', async (
     }
 });
 
+// Open RomM web interface button
+document.getElementById('open-romm-btn').addEventListener('click', async () => {
+    try {
+        const result = await window.electronAPI.openRommWebInterface();
+        if (result.success) {
+            showNotification('RomM web interface opened', 'success');
+        } else {
+            showNotification(`Error opening RomM: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        showNotification(`Error: ${error.message}`, 'error');
+    }
+});
+
 function showResult(message, type) {
     const resultDiv = document.getElementById('connection-result');
     resultDiv.textContent = message;
