@@ -352,204 +352,198 @@ body {
     gap: 1.5rem;
 }
 
+/* ROM Cards - Modern Design */
 .rom-card {
-    background-color: var(--bg-dark);
+    background: linear-gradient(145deg, var(--bg-dark) 0%, var(--bg-darker) 100%);
     border: 1px solid var(--border-color);
-    border-radius: 0.75rem;
-    padding: 1rem;
-    transition: all 0.2s;
+    border-radius: 1rem;
+    padding: 1.25rem;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     flex-direction: column;
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+}
+
+.rom-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--primary-color), var(--primary-hover));
+    transform: scaleX(0);
+    transition: transform 0.3s ease;
+}
+
+.rom-card:hover::before {
+    transform: scaleX(1);
 }
 
 .rom-card:hover {
+    transform: translateY(-4px);
     border-color: var(--primary-color);
-    box-shadow: 0 4px 20px rgba(99, 102, 241, 0.1);
+    box-shadow:
+        0 8px 25px rgba(99, 102, 241, 0.15),
+        0 4px 10px rgba(0, 0, 0, 0.1);
 }
 
 .rom-card.cached {
     border-color: var(--success);
-    background-color: rgba(16, 185, 129, 0.05);
+    background: linear-gradient(145deg, rgba(16, 185, 129, 0.05) 0%, var(--bg-darker) 100%);
+}
+
+.rom-card.cached::before {
+    background: linear-gradient(90deg, var(--success), #10b981);
 }
 
 .rom-card.cached:hover {
     border-color: var(--success);
-    box-shadow: 0 4px 20px rgba(16, 185, 129, 0.1);
+    box-shadow:
+        0 8px 25px rgba(16, 185, 129, 0.2),
+        0 4px 10px rgba(0, 0, 0, 0.1);
 }
 
 .rom-cover {
     width: 100%;
-    height: 220px;
-    background: linear-gradient(135deg, var(--bg-light), var(--bg-dark));
-    border-radius: 0.5rem;
-    margin-bottom: 0.75rem;
+    height: 180px;
+    background: linear-gradient(135deg, var(--bg-light) 0%, var(--bg-darker) 100%);
+    border-radius: 0.75rem;
+    margin-bottom: 1rem;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 3rem;
+    font-size: 2.5rem;
     position: relative;
+    overflow: hidden;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .rom-cover img {
     width: 100%;
     height: 100%;
     object-fit: cover;
-    border-radius: 0.5rem;
+    border-radius: 0.75rem;
+    transition: transform 0.3s ease;
+}
+
+.rom-card:hover .rom-cover img {
+    transform: scale(1.05);
 }
 
 .rom-status-icons {
     position: absolute;
-    top: 0.5rem;
-    right: 0.5rem;
+    top: 0.75rem;
+    right: 0.75rem;
     display: flex;
-    gap: 0.25rem;
+    gap: 0.375rem;
+    z-index: 2;
 }
 
 .status-icon {
-    background-color: rgba(0, 0, 0, 0.7);
-    border-radius: 0.25rem;
-    padding: 0.25rem;
-    font-size: 0.875rem;
-    backdrop-filter: blur(4px);
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    transition: all 0.2s ease;
 }
 
 .status-icon.cached {
-    background-color: rgba(16, 185, 129, 0.9);
+    background: linear-gradient(135deg, var(--success), #10b981);
     color: white;
 }
 
 .status-icon.played {
-    background-color: rgba(99, 102, 241, 0.9);
+    background: linear-gradient(135deg, var(--primary-color), var(--primary-hover));
     color: white;
 }
 
+.status-icon:hover {
+    transform: scale(1.1);
+}
+
+.rom-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
 .rom-info h3 {
-    font-size: 1rem;
-    font-weight: 600;
-    margin-bottom: 0.25rem;
-    white-space: nowrap;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0;
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
 .rom-info p {
-    font-size: 0.875rem;
+    font-size: 0.85rem;
     color: var(--text-secondary);
+    margin: 0;
+    font-weight: 500;
 }
 
 .rom-size {
     font-size: 0.75rem;
     color: var(--text-secondary);
+    opacity: 0.8;
+    font-weight: 400;
     margin-top: 0.25rem;
 }
 
 .rom-actions {
     display: flex;
-    gap: 0.5rem;
     align-items: center;
-}
-
-/* Action Dropdown */
-.action-dropdown {
-    position: relative;
-    display: inline-block;
-}
-
-.action-dropdown-toggle {
-    position: relative;
-    padding-right: 2rem;
-    /* Space for dropdown arrow */
-}
-
-.action-dropdown-toggle::after {
-    content: '';
-    position: absolute;
-    right: 0.5rem;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 0;
-    height: 0;
-    border-left: 0.3rem solid transparent;
-    border-right: 0.3rem solid transparent;
-    border-top: 0.3rem solid currentColor;
-    pointer-events: none;
-}
-
-.action-dropdown-menu {
-    display: none;
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    background-color: var(--bg-dark);
-    border: 1px solid var(--border-color);
-    border-radius: 0.5rem;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    z-index: 1000;
-    margin-top: 0.25rem;
-    min-width: 100%;
-}
-
-.action-dropdown-menu.show {
-    display: block;
-}
-
-.action-dropdown-item {
-    display: block;
-    width: 100%;
-    padding: 0.75rem 1rem;
-    background: none;
-    border: none;
-    color: var(--text-primary);
-    text-align: left;
-    cursor: pointer;
-    transition: all 0.2s;
-    font-size: 0.9rem;
-    border-radius: 0;
-}
-
-.action-dropdown-item:first-child {
-    border-radius: 0.375rem 0.375rem 0 0;
-}
-
-.action-dropdown-item:last-child {
-    border-radius: 0 0 0.375rem 0.375rem;
-}
-
-.action-dropdown-item:only-child {
-    border-radius: 0.375rem;
-}
-
-.action-dropdown-item:hover {
-    background-color: var(--bg-light);
-    color: var(--primary-color);
-}
-
-.action-dropdown-item:not(:last-child) {
-    border-bottom: 1px solid var(--border-color);
+    justify-content: space-between;
+    margin-top: 1rem;
+    gap: 0.5rem;
 }
 
 .btn-romm-small {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background-color: var(--bg-darker);
+    width: 28px;
+    height: 28px;
+    border-radius: 0.375rem;
+    background: linear-gradient(135deg, var(--bg-light), var(--bg-dark));
     border: 1px solid var(--border-color);
-    color: var(--text-primary);
+    color: var(--text-secondary);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1rem;
-    transition: all 0.2s;
-    padding: 0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
     flex-shrink: 0;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .btn-romm-small:hover {
-    background-color: var(--bg-light);
+    background: linear-gradient(135deg, var(--primary-color), var(--primary-hover));
+    color: white;
     border-color: var(--primary-color);
-    color: var(--primary-color);
+    transform: scale(1.05);
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.2);
+}
+
+.btn-romm-small:active {
+    transform: scale(0.95);
 }
 
 /* Platforms List */
@@ -1006,22 +1000,47 @@ body {
     padding: 0.75rem 1.25rem;
     border: 1px solid var(--border-color);
     border-radius: 0.5rem;
-    background-color: var(--bg-darker);
+    background: linear-gradient(135deg, var(--bg-light), var(--bg-dark));
     color: var(--text-primary);
     font-size: 0.9rem;
+    font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
     text-decoration: none;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.btn-romm::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.1), transparent);
+    transition: left 0.5s;
+}
+
+.btn-romm:hover::before {
+    left: 100%;
 }
 
 .btn-romm:hover {
-    background-color: var(--bg-light);
+    background: linear-gradient(135deg, var(--primary-color), var(--primary-hover));
     border-color: var(--primary-color);
-    color: var(--primary-color);
+    color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+}
+
+.btn-romm:active {
+    transform: translateY(0);
 }
 
 /* Empty State */

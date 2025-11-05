@@ -346,46 +346,6 @@ async function displayRoms(roms) {
         });
     });
 
-    // Add event listeners for dropdown toggles
-    grid.querySelectorAll('.action-dropdown-toggle').forEach(toggle => {
-        toggle.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const dropdown = toggle.closest('.action-dropdown');
-            const menu = dropdown.querySelector('.action-dropdown-menu');
-
-            // Close other dropdowns
-            document.querySelectorAll('.action-dropdown-menu.show').forEach(otherMenu => {
-                if (otherMenu !== menu) {
-                    otherMenu.classList.remove('show');
-                }
-            });
-
-            // Toggle this dropdown
-            menu.classList.toggle('show');
-        });
-    });
-
-    // Add event listeners for dropdown items
-    grid.querySelectorAll('.action-dropdown-item').forEach(item => {
-        item.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const action = item.dataset.action;
-            const romId = parseInt(item.dataset.romId);
-            const rom = sortedRoms.find(r => r.id === romId);
-
-            // Close dropdown
-            const menu = item.closest('.action-dropdown-menu');
-            menu.classList.remove('show');
-
-            // Handle action
-            if (action === 'download') {
-                showRomDetail(rom);
-            } else if (action === 'integrated') {
-                launchRomIntegrated(rom);
-            }
-        });
-    });
-
     // Add event listeners for RomM buttons
     grid.querySelectorAll('.btn-romm-small').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -446,58 +406,10 @@ async function launchRomIntegrated(rom) {
     }
 }
 
-// Generate action button HTML (dropdown or simple button)
+// Generate action button HTML (simple detail button)
 function generateActionButtonHtml(rom, isCached, isPlatformSupported, hasLocalEmulator, hasIntegratedEmulator, emulatorMessage) {
-    // Determine button state and text
-    let buttonClass = 'btn-primary';
-    let buttonText = isCached ? '🎮 Launch' : '⬇️ Download';
-    let buttonDisabled = '';
-    let buttonTitle = '';
-
-    if (!isCached && (!isPlatformSupported || (!hasLocalEmulator && !hasIntegratedEmulator))) {
-        buttonClass = 'btn-disabled';
-        buttonDisabled = 'disabled';
-        buttonTitle = `title="${emulatorMessage}"`;
-    }
-
-    // Create dropdown if local emulator is configured and ROM not cached
-    let actionButtonHtml = '';
-    if (hasLocalEmulator && !isCached) {
-        // Local emulator configured - show dropdown with download and integrated launch (if available)
-        let dropdownItems = `
-                    <button class="action-dropdown-item" data-action="download" data-rom-id="${rom.id}">
-                        ⬇️ Download & Launch
-                    </button>`;
-
-        if (hasIntegratedEmulator) {
-            dropdownItems += `
-                    <button class="action-dropdown-item" data-action="integrated" data-rom-id="${rom.id}">
-                        🎮 Launch with EmulatorJS
-                    </button>`;
-        }
-
-        actionButtonHtml = `
-            <div class="action-dropdown">
-                <button class="${buttonClass} action-dropdown-toggle" ${buttonDisabled} ${buttonTitle} data-rom-id="${rom.id}">
-                    ${buttonText} ▼
-                </button>
-                <div class="action-dropdown-menu">
-                    ${dropdownItems}
-                </div>
-            </div>
-        `;
-    } else if (!isCached && hasIntegratedEmulator) {
-        // No local emulator configured but integrated emulator available - show only integrated launch
-        actionButtonHtml = `<button class="btn-primary" data-rom-id="${rom.id}">🎮 Launch with EmulatorJS</button>`;
-    } else if (!isCached && !hasIntegratedEmulator) {
-        // No emulators available - show disabled download button
-        actionButtonHtml = `<button class="${buttonClass}" ${buttonDisabled} ${buttonTitle} data-rom-id="${rom.id}">${buttonText}</button>`;
-    } else {
-        // ROM is cached - show launch button
-        actionButtonHtml = `<button class="${buttonClass}" ${buttonDisabled} ${buttonTitle} data-rom-id="${rom.id}">${buttonText}</button>`;
-    }
-
-    return actionButtonHtml;
+    // Always show a simple "Details" button that opens the modal
+    return `<button class="btn-primary" data-rom-id="${rom.id}">ℹ️ Details</button>`;
 }
 
 // Consent modal functions
@@ -1001,7 +913,9 @@ async function preloadInstalledRomsData() {
                     // Add platform info
                     platform_name: remoteRom.platform_name || 'Unknown',
                     platform_slug: remoteRom.platform_slug,
-                    platform_id: remoteRom.platform_id
+                    platform_id: remoteRom.platform_id,
+                    // Mark as cached since these are installed ROMs
+                    isCached: true
                 };
             }
             return localRom; // fallback
@@ -2239,66 +2153,34 @@ function setupModalHandlers() {
             document.getElementById('download-progress-modal').classList.remove('show');
         });
     }
-
-    // Close dropdowns when clicking outside
-    document.addEventListener('click', (e) => {
-        if (!e.target.closest('.action-dropdown')) {
-            document.querySelectorAll('.action-dropdown-menu.show').forEach(menu => {
-                menu.classList.remove('show');
-            });
-        }
-    });
-}
-
-/**
- * Setup dropdown listeners specifically for modal content
- */
-function setupModalDropdownListeners() {
-    // Handle dropdown toggle clicks in modal
-    document.addEventListener('click', (e) => {
-        if (e.target.classList.contains('action-dropdown-toggle')) {
-            e.stopPropagation();
-            const dropdown = e.target.closest('.action-dropdown');
-            const menu = dropdown.querySelector('.action-dropdown-menu');
-
-            // Close other dropdowns
-            document.querySelectorAll('.action-dropdown-menu.show').forEach(otherMenu => {
-                if (otherMenu !== menu) {
-                    otherMenu.classList.remove('show');
-                }
-            });
-
-            // Toggle this dropdown
-            menu.classList.toggle('show');
-        }
-    });
-
-    // Handle dropdown item clicks in modal
-    document.addEventListener('click', (e) => {
-        if (e.target.classList.contains('action-dropdown-item')) {
-            e.stopPropagation();
-            const action = e.target.dataset.action;
-            const romId = e.target.dataset.romId;
-            const rom = currentRoms.find(r => r.id === parseInt(romId));
-
-            if (rom && action) {
-                handleRomAction(action, rom);
-            }
-
-            // Close dropdown
-            const menu = e.target.closest('.action-dropdown-menu');
-            if (menu) {
-                menu.classList.remove('show');
-            }
-        }
-    });
 }
 
 // Initialize modal dropdown listeners when the script loads
-setupModalDropdownListeners();
+// setupModalDropdownListeners(); // Removed - no more dropdowns
 
 /**
- * Handle ROM action from dropdown or button clicks
+ * Handle ROM action from modal button clicks
+ */
+async function handleRomAction(action, rom) {
+    console.log(`[FRONTEND] handleRomAction called with action: ${action}, rom: ${rom.name}`);
+
+    if (action === 'download') {
+        // Download and launch ROM
+        await launchRom(rom);
+    } else if (action === 'integrated') {
+        // Launch with integrated emulator (EmulatorJS)
+        await launchRomIntegrated(rom);
+    } else {
+        console.error(`[FRONTEND] Unknown ROM action: ${action}`);
+        showNotification(`Unknown action: ${action}`, 'error');
+    }
+}
+
+/**
+ * Generate HTML for action button with dropdown
+ */
+/**
+ * Handle ROM action from modal button clicks
  */
 async function handleRomAction(action, rom) {
     console.log(`[FRONTEND] handleRomAction called with action: ${action}, rom: ${rom.name}`);
@@ -2314,9 +2196,6 @@ async function handleRomAction(action, rom) {
     }
 }
 
-/**
- * Generate HTML for action button with dropdown
- */
 /**
  * Show ROM detail modal
  */
