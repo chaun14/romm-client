@@ -42,6 +42,9 @@ export class RommClient extends BrowserWindow {
 
     console.log("Initializing RommClient version " + app.getVersion());
 
+    this.setMenu(null);
+    this.setMenuBarVisibility(false);
+
     this.appSettingsManager = new AppSettingsManager();
 
     this.emulatorManager = new EmulatorManager(this);

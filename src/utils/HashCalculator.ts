@@ -75,7 +75,7 @@ export class HashCalculator {
       const hash = crypto.createHash(algorithm);
       const stream = fsSync.createReadStream(filePath, { highWaterMark: 64 * 1024 * 1024 }); // 64MB chunks
 
-      stream.on("data", (chunk: Buffer) => {
+      stream.on("data", (chunk: string | Buffer) => {
         hash.update(chunk);
       });
 
