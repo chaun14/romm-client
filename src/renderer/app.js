@@ -17,6 +17,12 @@ let romSaveStatus = new Map();
 // Download state
 let isDownloading = false;
 
+// Update state
+let updateAvailable = false;
+let updateDownloading = false;
+let updateReady = false;
+let updateInfo = null;
+
 // Track loaded views to avoid reloading
 let loadedViews = {
     platforms: false,
