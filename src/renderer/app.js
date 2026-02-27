@@ -1358,7 +1358,11 @@ function displayEmulatorsConfig(configs, supportedEmulators) {
     <div>
     <p  class="info-text">⚠️Note: We recommend using emulators that you're not using for other purposes to avoid configuration / save conflicts. </p>
     </div>
-    ${Object.entries(supportedEmulators).map(([emulatorKey, emulator]) => `
+    ${Object.entries(supportedEmulators).map(([emulatorKey, emulator]) => {
+        const emulatorPath = configs[emulatorKey]?.path || '';
+        const isPathDefined = emulatorPath.trim() !== '';
+        const isIntegrated = emulatorKey === 'rommIntegrated';
+        return `
       <div class="emulator-item">
         <h4>${emulator.name}</h4>
         <p class="emulator-platforms">Supports: ${emulator.platforms.join(', ').toUpperCase()}</p>
@@ -1366,13 +1370,15 @@ function displayEmulatorsConfig(configs, supportedEmulators) {
           <input
             type="text"
             data-emulator="${emulatorKey}"
-            value="${configs[emulatorKey]?.path || ''}"
+            value="${emulatorPath}"
             placeholder="C:\\emulators\\${emulator.name}\\${emulator.name}.exe"
+            ${isIntegrated ? 'readonly' : ''}
           >
-          <button class="btn-config-emulator" data-emulator="${emulatorKey}" title="Configure ${emulator.name}">⚙️ Configure</button>
+          <button class="btn-config-emulator" data-emulator="${emulatorKey}" title="Configure ${emulator.name}" ${!isPathDefined || isIntegrated ? 'disabled' : ''}>⚙️ Configure</button>
         </div>
       </div>
-    `).join('')}
+    `;
+    }).join('')}
     <button class="btn-primary" id="save-emulators-btn" style="margin-top: 1rem;">Save</button>
   `;
 
@@ -1390,6 +1396,9 @@ function displayEmulatorsConfig(configs, supportedEmulators) {
             }
 
             try {
+                // Auto-save the configuration before launching
+                await window.electronAPI.emulator.saveConfig(emulatorKey, emulatorPath);
+                
                 showNotification(`Starting ${supportedEmulators[emulatorKey].name} in configuration mode...`, 'info');
                 const result = await window.electronAPI.emulator.configureEmulator(emulatorKey, emulatorPath);
                 if (result.success) {
@@ -1406,6 +1415,21 @@ function displayEmulatorsConfig(configs, supportedEmulators) {
     // Add auto-save on input change
     const inputs = container.querySelectorAll('input');
     // Autosave disabled, config is only saved when clicking Save
+    
+    // Add input change listeners to enable/disable configure buttons
+    inputs.forEach(input => {
+        input.addEventListener('input', (e) => {
+            const emulatorKey = e.target.dataset.emulator;
+            const configBtn = container.querySelector(`.btn-config-emulator[data-emulator="${emulatorKey}"]`);
+            const hasPath = e.target.value.trim() !== '';
+            
+            if (hasPath) {
+                configBtn.removeAttribute('disabled');
+            } else {
+                configBtn.setAttribute('disabled', '');
+            }
+        });
+    });
 
     document.getElementById('save-emulators-btn').addEventListener('click', async () => {
         const inputs = container.querySelectorAll('input');

@@ -685,6 +685,12 @@ body {
     flex: 1;
 }
 
+.emulator-config-row input[readonly] {
+    background-color: var(--bg-light);
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
 .btn-config-emulator {
     padding: 0.5rem 0.75rem;
     border: 1px solid var(--border-color);
@@ -697,10 +703,18 @@ body {
     white-space: nowrap;
 }
 
-.btn-config-emulator:hover {
+.btn-config-emulator:hover:not([disabled]) {
     background-color: var(--accent-color);
     color: var(--text-primary);
     border-color: var(--accent-color);
+}
+
+.btn-config-emulator[disabled] {
+    background-color: var(--bg-dark);
+    color: var(--text-secondary);
+    cursor: not-allowed;
+    opacity: 0.5;
+    border-color: var(--bg-light);
 }
 
 /* Settings Form */
