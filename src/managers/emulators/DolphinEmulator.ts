@@ -33,7 +33,7 @@ export class DolphinEmulator extends Emulator {
    * Get supported platforms for Dolphin
    */
   public static getPlatforms(): string[] {
-    return ["wii", "gamecube"];
+    return ["wii", "ngc"];
   }
 
   /**
@@ -100,7 +100,7 @@ export class DolphinEmulator extends Emulator {
    */
   public prepareArgs(romPath: string, userDir: string): string[] {
     return this.defaultArgs.map(
-      (arg) => arg.replace("{rom}", romPath).replace("{userDir}", userDir).replace("{save}", userDir) // For compatibility
+      (arg) => arg.replace("{rom}", romPath).replace("{userDir}", userDir).replace("{save}", userDir), // For compatibility
     );
   }
 
@@ -278,7 +278,7 @@ export class DolphinEmulator extends Emulator {
         const contents = await fs.readdir(localSaveDir, { withFileTypes: true });
         console.log(
           `[DOLPHIN] Contents of ${localSaveDir}:`,
-          contents.map((c) => ({ name: c.name, isDir: c.isDirectory() }))
+          contents.map((c) => ({ name: c.name, isDir: c.isDirectory() })),
         );
       } catch (err: any) {
         console.warn(`[DOLPHIN] Could not list directory contents: ${err.message}`);
@@ -350,7 +350,7 @@ export class DolphinEmulator extends Emulator {
           const wiiContents = await fs.readdir(localWiiDir, { withFileTypes: true });
           console.log(
             `[DOLPHIN] Wii directory contents:`,
-            wiiContents.map((c) => ({ name: c.name, isDir: c.isDirectory() }))
+            wiiContents.map((c) => ({ name: c.name, isDir: c.isDirectory() })),
           );
         } catch (err: any) {
           console.warn(`[DOLPHIN] Could not read Wii dir: ${err.message}`);
@@ -363,7 +363,7 @@ export class DolphinEmulator extends Emulator {
           const saveContents = await fs.readdir(localSaveDir, { withFileTypes: true });
           console.log(
             `[DOLPHIN] Local save directory contents:`,
-            saveContents.map((c) => ({ name: c.name, isDir: c.isDirectory() }))
+            saveContents.map((c) => ({ name: c.name, isDir: c.isDirectory() })),
           );
         } catch (err: any) {
           console.warn(`[DOLPHIN] Could not read local save dir: ${err.message}`);
@@ -380,7 +380,7 @@ export class DolphinEmulator extends Emulator {
           const gcContents = await fs.readdir(localGcDir, { withFileTypes: true });
           console.log(
             `[DOLPHIN] GC directory contents:`,
-            gcContents.map((c) => ({ name: c.name, isDir: c.isDirectory() }))
+            gcContents.map((c) => ({ name: c.name, isDir: c.isDirectory() })),
           );
         } catch (err: any) {
           console.warn(`[DOLPHIN] Could not read GC dir: ${err.message}`);
@@ -393,7 +393,7 @@ export class DolphinEmulator extends Emulator {
           const saveContents = await fs.readdir(localSaveDir, { withFileTypes: true });
           console.log(
             `[DOLPHIN] Local save directory contents for GC:`,
-            saveContents.map((c) => ({ name: c.name, isDir: c.isDirectory() }))
+            saveContents.map((c) => ({ name: c.name, isDir: c.isDirectory() })),
           );
         } catch (err: any) {
           console.warn(`[DOLPHIN] Could not read local save dir: ${err.message}`);
