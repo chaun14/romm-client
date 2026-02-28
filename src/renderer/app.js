@@ -1927,6 +1927,9 @@ function showUpdateView() {
 
     // Populate update information
     populateUpdateView();
+
+    // Setup event listeners for update buttons
+    setupUpdateViewListeners();
 }
 
 function populateUpdateView() {
