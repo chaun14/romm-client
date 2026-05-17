@@ -32,8 +32,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Configuration
     config: {
         setRommUrl: (url) => ipcRenderer.invoke('config:set-romm-url', url),
-        setCredentials: (username, password, saveCredentials = true) =>
-            ipcRenderer.invoke('config:set-credentials', { username, password, saveCredentials }),
+        setCredentials: (username, password) =>
+            ipcRenderer.invoke('config:set-credentials', { username, password }),
         testConnection: () => ipcRenderer.invoke('config:test-connection'),
         logout: () => ipcRenderer.invoke('config:logout'),
         getCurrentUser: () => ipcRenderer.invoke('config:get-current-user'),

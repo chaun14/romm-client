@@ -60,6 +60,7 @@ export class IPCManager {
 
       // Update RommClient's settings reference
       this.rommClient.settings = this.rommClient.appSettingsManager.getSettings();
+      await this.rommClient.setupFolders();
 
       // Create RommApi instance if it doesn't exist
       if (!this.rommClient.rommApi) {
@@ -73,15 +74,7 @@ export class IPCManager {
       return { success: true };
     });
 
-    ipcMain.handle("config:set-credentials", async (event, { username, password, saveCredentials = true }) => {
-      // Update settings using AppSettingsManager
-      this.rommClient.appSettingsManager.setSetting("username", saveCredentials ? username : null);
-      this.rommClient.appSettingsManager.setSetting("password", saveCredentials ? password : null);
-      await this.rommClient.appSettingsManager.saveSettings();
-
-      // Update RommClient's settings reference
-      this.rommClient.settings = this.rommClient.appSettingsManager.getSettings();
-
+    ipcMain.handle("config:set-credentials", async (event, { username, password }) => {
       // Ensure RommApi exists
       if (!this.rommClient.rommApi && this.rommClient.settings.baseUrl) {
         this.rommClient.rommApi = new RommApi(this.rommClient.settings.baseUrl);
@@ -96,12 +89,15 @@ export class IPCManager {
 
       // If login successful, save session tokens
       if (loginResult.success) {
+        this.rommClient.appSettingsManager.setSetting("username", null);
+        this.rommClient.appSettingsManager.setSetting("password", null);
         this.rommClient.appSettingsManager.setSetting("sessionToken", this.rommClient.rommApi.sessionTokenValue);
         this.rommClient.appSettingsManager.setSetting("csrfToken", this.rommClient.rommApi.csrfTokenValue);
         await this.rommClient.appSettingsManager.saveSettings();
 
         // Update RommClient's settings reference again
         this.rommClient.settings = this.rommClient.appSettingsManager.getSettings();
+        await this.rommClient.initializeAuthenticatedData();
       }
 
       return loginResult;
@@ -139,10 +135,6 @@ export class IPCManager {
       // Update RommClient's settings reference
       this.rommClient.settings = this.rommClient.appSettingsManager.getSettings();
 
-      // Reset RommClient to initial state instead of just loading login page
-      // This ensures proper cleanup and initialization like on app startup
-      await this.rommClient.initWindow();
-
       return { success: true };
     });
 
@@ -161,13 +153,10 @@ export class IPCManager {
     });
 
     ipcMain.handle("config:has-saved-credentials", async () => {
-      return !!(this.rommClient.settings.username && this.rommClient.settings.password);
+      return false;
     });
     ipcMain.handle("config:authenticate-with-saved-credentials", async () => {
-      if (!this.rommClient.rommApi) {
-        return { success: false, error: "RomM API not initialized" };
-      }
-      return this.rommClient.rommApi.loginWithCredentials(this.rommClient.settings.username!, this.rommClient.settings.password!);
+      return { success: false, error: "Saved passwords are no longer supported. Please log in again to create a session." };
     });
 
     ipcMain.handle("config:has-saved-session", async () => {
@@ -175,10 +164,17 @@ export class IPCManager {
     });
 
     ipcMain.handle("config:authenticate-with-saved-session", async () => {
+      if (!this.rommClient.rommApi && this.rommClient.settings.baseUrl) {
+        this.rommClient.rommApi = new RommApi(this.rommClient.settings.baseUrl);
+      }
       if (!this.rommClient.rommApi) {
         return { success: false, error: "RomM API not initialized" };
       }
-      return this.rommClient.rommApi.loginWithSession(this.rommClient.settings.sessionToken!, this.rommClient.settings.csrfToken || undefined);
+      const result = await this.rommClient.rommApi.loginWithSession(this.rommClient.settings.sessionToken!, this.rommClient.settings.csrfToken || undefined);
+      if (result.success) {
+        await this.rommClient.initializeAuthenticatedData();
+      }
+      return result;
     });
 
     ipcMain.handle("config:start-oauth", async (event, serverUrl) => {
@@ -251,6 +247,7 @@ export class IPCManager {
 
                     // Update RommClient's settings reference
                     this.rommClient.settings = this.rommClient.appSettingsManager.getSettings();
+                    await this.rommClient.initializeAuthenticatedData();
 
                     console.log("[IPC] OAuth authentication successful");
                     resolve({ success: true });

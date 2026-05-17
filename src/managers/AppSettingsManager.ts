@@ -8,7 +8,9 @@ export interface AppSettings {
   baseUrl: string;
   sessionToken?: string | null;
   csrfToken?: string | null;
+  /** Legacy field only. User identity is read from the active session. */
   username?: string | null;
+  /** Legacy field only. Passwords are no longer persisted. */
   password?: string | null;
   emulators?: Array<{ name: string; path: string }>;
 }
@@ -26,8 +28,8 @@ export class AppSettingsManager {
       baseUrl: "",
       sessionToken: null,
       csrfToken: null,
-      username: null,
       password: null,
+      username: null,
     };
     this.configPath = path.join(process.env.APPDATA || process.env.HOME || "", "romm-client", "config.json");
   }
@@ -45,6 +47,11 @@ export class AppSettingsManager {
 
       // Merge with default settings
       this.settings = { ...this.settings, ...config };
+      if (config.password || config.username) {
+        this.settings.username = null;
+        this.settings.password = null;
+        await this.saveSettings();
+      }
 
       //  console.log("Loaded settings:", this.settings);
     } catch (error) {
@@ -74,12 +81,6 @@ export class AppSettingsManager {
       // Save CSRF token if it exists
       if (this.settings.csrfToken) {
         configToSave.csrfToken = this.settings.csrfToken;
-      }
-
-      // Save credentials only if both exist
-      if (this.settings.username && this.settings.password) {
-        configToSave.username = this.settings.username;
-        configToSave.password = this.settings.password;
       }
 
       // Save emulators configuration if it exists
@@ -135,8 +136,8 @@ export class AppSettingsManager {
       baseUrl: "",
       sessionToken: null,
       csrfToken: null,
-      username: null,
       password: null,
+      username: null,
     };
   }
   /**
@@ -144,6 +145,6 @@ export class AppSettingsManager {
    * @returns True if saved credentials exist, false otherwise
    */
   hasSavedCredentials(): boolean {
-    return !!(this.settings.username && this.settings.password);
+    return false;
   }
 }

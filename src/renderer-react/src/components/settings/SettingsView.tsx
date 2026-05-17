@@ -3,7 +3,19 @@ import { api } from "../../lib/api";
 import type { Toast } from "../../types";
 import { HeaderActions, IconButton } from "../layout/HeaderActions";
 
-export function SettingsView({ user, baseUrl, onRefresh, notify }: { user: any; baseUrl: string; onRefresh: () => void; notify: (message: string, type?: Toast["type"]) => void }) {
+export function SettingsView({
+  user,
+  baseUrl,
+  onRefresh,
+  notify,
+  onLoggedOut,
+}: {
+  user: any;
+  baseUrl: string;
+  onRefresh: () => void;
+  notify: (message: string, type?: Toast["type"]) => void;
+  onLoggedOut: () => void;
+}) {
   return (
     <>
       <HeaderActions title="Settings">
@@ -31,6 +43,7 @@ export function SettingsView({ user, baseUrl, onRefresh, notify }: { user: any; 
             const result = await api.config.logout();
             if (result.success) {
               notify("Logged out", "success");
+              onLoggedOut();
             } else {
               notify(result.error || "Logout failed", "error");
             }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Toasts } from "./components/common/Toasts";
+import { LoginView } from "./components/auth/LoginView";
 import { EmulatorsView } from "./components/emulators/EmulatorsView";
 import { Sidebar } from "./components/layout/Sidebar";
 import { StatsBar } from "./components/layout/StatsBar";
@@ -15,6 +16,8 @@ import type { DownloadState, Platform, Rom, Toast, View } from "./types";
 
 export function App() {
   const [view, setView] = useState<View>("platforms");
+  const [authChecking, setAuthChecking] = useState(true);
+  const [authenticated, setAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [baseUrl, setBaseUrl] = useState("");
   const [user, setUser] = useState<any>(null);
@@ -60,6 +63,7 @@ export function App() {
       }
       return nextView;
     });
+  }, []);
 
   const goBack = useCallback(() => {
     if (downloadRef.current) {
@@ -119,9 +123,11 @@ export function App() {
       api.stats.fetch().catch(() => null),
     ]);
 
-    setUser(getResultData(userResult, null));
+    const currentUser = getResultData(userResult, null);
+    setUser(currentUser);
     setBaseUrl(getResultData(urlResult, ""));
     setStats(getResultData(statsResult, null));
+    return Boolean(currentUser);
   }, []);
 
   const loadPlatforms = useCallback(async () => {
@@ -257,11 +263,43 @@ export function App() {
     [loadInstalled, notify],
   );
 
+  const loadInitialData = useCallback(async () => {
+    await Promise.all([loadPlatforms(), loadInstalled(), loadEmulators()]);
+  }, [loadEmulators, loadInstalled, loadPlatforms]);
+
+  const finishAuthentication = useCallback(async () => {
+    setAuthChecking(true);
+    const isAuthenticated = await refreshShell();
+    setAuthenticated(isAuthenticated);
+    if (isAuthenticated) {
+      await loadInitialData();
+    }
+    setAuthChecking(false);
+  }, [loadInitialData, refreshShell]);
+
   useEffect(() => {
-    refreshShell();
-    loadPlatforms();
-    loadInstalled();
-    loadEmulators();
+    const boot = async () => {
+      setAuthChecking(true);
+
+      let isAuthenticated = await refreshShell();
+      if (!isAuthenticated) {
+        const hasSession = await api.config.hasSavedSession().catch(() => false);
+        if (hasSession) {
+          const sessionResult = await api.config.authenticateWithSavedSession().catch((error: any) => ({ success: false, error: error.message }));
+          if (sessionResult?.success) {
+            isAuthenticated = await refreshShell();
+          }
+        }
+      }
+
+      setAuthenticated(isAuthenticated);
+      if (isAuthenticated) {
+        await loadInitialData();
+      }
+      setAuthChecking(false);
+    };
+
+    boot();
 
     events.onSaveChoiceModal?.((data: any) => setSaveChoice(data));
     events.onEmulatorChoiceModal?.((data: any) => setEmulatorChoice(data));
@@ -273,7 +311,7 @@ export function App() {
       events.removeEmulatorChoiceListener?.();
       events.removeRomLaunchListeners?.();
     };
-  }, [loadEmulators, loadInstalled, loadPlatforms, notify, refreshShell]);
+  }, [loadInitialData, notify, refreshShell]);
 
   useEffect(() => {
     selectedPlatformRef.current = selectedPlatform;
@@ -304,6 +342,23 @@ export function App() {
   }, [installedPlatform, installedRoms, installedSearch]);
 
   const installedPlatforms = useMemo(() => Array.from(new Set(installedRoms.map(romPlatform))).sort(), [installedRoms]);
+
+  if (authChecking) {
+    return (
+      <div className="flex h-full items-center justify-center bg-ink text-slate-400">
+        <div className="rounded-md border border-line bg-panel px-5 py-4 text-sm">Loading RomM session...</div>
+      </div>
+    );
+  }
+
+  if (!authenticated) {
+    return (
+      <>
+        <LoginView onAuthenticated={finishAuthentication} />
+        <Toasts toasts={toasts} />
+      </>
+    );
+  }
 
   return (
     <div className="flex h-full bg-ink text-slate-100">
@@ -366,7 +421,20 @@ export function App() {
             />
           ) : null}
 
-          {view === "settings" ? <SettingsView user={user} baseUrl={baseUrl} onRefresh={refreshShell} notify={notify} /> : null}
+          {view === "settings" ? (
+            <SettingsView
+              user={user}
+              baseUrl={baseUrl}
+              onRefresh={refreshShell}
+              notify={notify}
+              onLoggedOut={() => {
+                setAuthenticated(false);
+                setUser(null);
+                setStats(null);
+                resetPlatformView();
+              }}
+            />
+          ) : null}
         </section>
       </main>
 

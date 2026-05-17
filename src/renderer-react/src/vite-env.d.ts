@@ -7,7 +7,21 @@ type ApiResult<T = unknown> = {
 };
 
 type RommApiBridge = {
-  config: Record<string, (...args: any[]) => Promise<any>>;
+  config: {
+    setRommUrl: (url: string) => Promise<ApiResult>;
+    setCredentials: (username: string, password: string) => Promise<ApiResult>;
+    testConnection: () => Promise<ApiResult>;
+    logout: () => Promise<ApiResult>;
+    getCurrentUser: () => Promise<ApiResult<any>>;
+    getBaseUrl: () => Promise<string | null>;
+    getPlatformImageUrl: (slug: string) => Promise<string | null>;
+    startOAuth: (url: string) => Promise<ApiResult>;
+    hasSavedCredentials: () => Promise<boolean>;
+    authenticateWithSavedCredentials: () => Promise<ApiResult>;
+    hasSavedSession: () => Promise<boolean>;
+    authenticateWithSavedSession: () => Promise<ApiResult>;
+    getVersion: () => Promise<ApiResult<string>>;
+  };
   roms: Record<string, (...args: any[]) => Promise<any>>;
   emulator: Record<string, (...args: any[]) => Promise<any>>;
   saves: Record<string, (...args: any[]) => Promise<any>>;
