@@ -128,6 +128,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Open RomM Web Interface
     openRommWebInterface: (romId) => ipcRenderer.invoke('romm:open-web-interface', romId),
 
+    // Authenticated image loading
+    images: {
+        fetchDataUrl: (url) => ipcRenderer.invoke('images:fetch-data-url', url)
+    },
+
     // Updates
     updates: {
         check: () => ipcRenderer.invoke('update:check'),

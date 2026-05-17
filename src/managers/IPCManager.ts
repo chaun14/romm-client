@@ -1,4 +1,5 @@
 import { app, ipcMain, BrowserWindow } from "electron";
+import axios from "axios";
 import path from "path";
 import { RommClient } from "../RomMClient";
 import { autoUpdater } from "electron-updater";
@@ -440,6 +441,60 @@ export class IPCManager {
       console.log("[IPC]" + `Fetching stats`);
       if (this.rommClient.rommApi) return this.rommClient.rommApi.fetchStats();
       else throw new Error("RomM API is not initialized");
+    });
+
+    ipcMain.handle("images:fetch-data-url", async (event, imageUrl) => {
+      try {
+        if (!imageUrl || typeof imageUrl !== "string") {
+          return { success: false, error: "Image URL is required" };
+        }
+
+        const baseUrl = this.rommClient.rommApi?.getBaseUrl() || this.rommClient.settings.baseUrl;
+        if (!baseUrl) {
+          return { success: false, error: "RomM base URL not configured" };
+        }
+
+        const absoluteUrl = new URL(imageUrl, baseUrl).toString();
+        const baseOrigin = new URL(baseUrl).origin;
+        const imageOrigin = new URL(absoluteUrl).origin;
+        const headers = imageOrigin === baseOrigin ? this.rommClient.rommApi?.getAuthHeaders() || {} : {};
+
+        const response = await axios.get(absoluteUrl, {
+          responseType: "arraybuffer",
+          headers,
+        });
+
+        const contentType = response.headers["content-type"] || "image/jpeg";
+        const data = Buffer.from(response.data).toString("base64");
+
+        return {
+          success: true,
+          data: `data:${contentType};base64,${data}`,
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    });
+
+    ipcMain.handle("rom:check-cache", async (event, rom) => {
+      try {
+        const localRom = this.rommClient.romManager?.getLocalRomById(rom.id);
+        return {
+          success: true,
+          data: Boolean(localRom),
+          cached: Boolean(localRom),
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          data: false,
+          cached: false,
+          error: error.message,
+        };
+      }
     });
     /*
     // Cache and Save Status

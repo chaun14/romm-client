@@ -270,7 +270,7 @@ export class RommApi {
     return this.apiCall("get", `/api/roms/${romId}`);
   }
 
-  async fetchRoms(options: RomOptions & { search?: string; platform_id?: number } = {}): Promise<ApiResponse<RomsResponse>> {
+  async fetchRoms(options: RomOptions & { search?: string; platform_id?: number; platform_ids?: number | string } = {}): Promise<ApiResponse<RomsResponse>> {
     const params: any = {
       limit: options.limit || 15,
       offset: options.offset || 0,
@@ -285,7 +285,8 @@ export class RommApi {
     }
 
     // Add other options
-    if (options.platform_id !== undefined) params.platform_id = options.platform_id;
+    if (options.platform_ids !== undefined) params.platform_ids = options.platform_ids;
+    else if (options.platform_id !== undefined) params.platform_ids = options.platform_id;
     if (options.groupByMetaId !== undefined) params.group_by_meta_id = options.groupByMetaId;
 
     return this.apiCall("get", "/api/roms", { params });
@@ -321,7 +322,7 @@ export class RommApi {
 
   async getRomsByPlatform(platformId: number, options: RomOptions = {}): Promise<ApiResponse<RomsResponse>> {
     return this.fetchRoms({
-      platform_id: platformId,
+      platform_ids: platformId,
       limit: options.limit || 72,
       orderBy: options.orderBy || "name",
       orderDir: options.orderDir || "asc",

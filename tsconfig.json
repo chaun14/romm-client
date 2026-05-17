@@ -35,6 +35,7 @@
 , "old/dolphin-emulator.js", "old/emulator.js"  ],
   "exclude": [
     "node_modules",
-    "out"
+    "out",
+    "src/renderer-react"
   ]
 }
