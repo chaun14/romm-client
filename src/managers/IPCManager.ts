@@ -1,10 +1,19 @@
 import { app, ipcMain, BrowserWindow } from "electron";
-import axios from "axios";
 import path from "path";
 import { RommClient } from "../RomMClient";
 import { autoUpdater } from "electron-updater";
 import { RommApi } from "../api/RommApi";
 import { EmulatorManager } from "./EmulatorManager";
+
+type AxiosStatic = {
+  get: (url: string, options?: any) => Promise<any>;
+};
+
+const axiosPromise: Promise<AxiosStatic> = import("axios").then((module) => (module as { default: AxiosStatic }).default);
+
+function getAxios(): Promise<AxiosStatic> {
+  return axiosPromise;
+}
 
 export class IPCManager {
   private rommClient: RommClient;
@@ -54,7 +63,7 @@ export class IPCManager {
 
       // Create RommApi instance if it doesn't exist
       if (!this.rommClient.rommApi) {
-        const { RommApi } = await import("../api/RommApi");
+        const { RommApi } = await import("../api/RommApi.js");
         this.rommClient.rommApi = new RommApi(url);
       } else {
         // Update existing API base URL
@@ -103,7 +112,7 @@ export class IPCManager {
       let apiToTest = this.rommClient.rommApi;
 
       if (!apiToTest && this.rommClient.settings.baseUrl) {
-        const { RommApi } = await import("../api/RommApi");
+        const { RommApi } = await import("../api/RommApi.js");
         apiToTest = new RommApi(this.rommClient.settings.baseUrl);
       }
 
@@ -459,6 +468,7 @@ export class IPCManager {
         const imageOrigin = new URL(absoluteUrl).origin;
         const headers = imageOrigin === baseOrigin ? this.rommClient.rommApi?.getAuthHeaders() || {} : {};
 
+        const axios = await getAxios();
         const response = await axios.get(absoluteUrl, {
           responseType: "arraybuffer",
           headers,
@@ -634,6 +644,9 @@ export class IPCManager {
         console.log("[IPC]" + `Launch progress for ROM: ${rom.name} (ID: ${rom.id}): ${JSON.stringify(progress)}`);
         console.log("[IPC] Sending rom:download-progress event to frontend");
         event.sender.send("rom:download-progress", progress);
+        if (progress?.complete) {
+          event.sender.send("rom:download-complete", { rom, progress });
+        }
       };
 
       // Create save choice callback

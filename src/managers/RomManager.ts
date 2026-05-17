@@ -372,7 +372,9 @@ export class RomManager {
       }
 
       // Step 1: Ensure ROM is available (download if needed) - only for external emulators
-      const launchResult = await this.launchRom(rom, onProgress, () => {}, onProgress);
+      const launchResult = await this.launchRom(rom, onProgress, () => {}, () => {
+        onProgress({ step: "download", percent: 100, downloaded: "100.00", total: "100.00", message: "ROM ready" });
+      });
       if (!launchResult.success) {
         throw new Error("Failed to prepare ROM for launch");
       }
@@ -499,7 +501,7 @@ export class RomManager {
       if (selectedSaveOption === "cloud" && selectedSaveId) {
         // For cloud saves, use handleSaveChoice to download and launch
         console.log("[LAUNCH FLOW] Handling cloud save choice for save ID:", selectedSaveId);
-        finalLaunchResult = await emulator.handleSaveChoice(romData, "cloud", saveManager, this.rommClient.rommApi, selectedSaveId);
+        finalLaunchResult = await emulator.handleSaveChoice(romData, "cloud", saveManager, this.rommClient.rommApi, selectedSaveId, onProgress);
         if (!finalLaunchResult.success) {
           throw new Error(`Failed to handle cloud save choice: ${finalLaunchResult.error}`);
         }
@@ -507,7 +509,7 @@ export class RomManager {
       } else if (selectedSaveOption === "local" && saveData.hasLocal) {
         // For local saves, use handleSaveChoice to prepare and launch
         console.log("[LAUNCH FLOW] Handling local save choice");
-        finalLaunchResult = await emulator.handleSaveChoice(romData, "local", saveManager, this.rommClient.rommApi);
+        finalLaunchResult = await emulator.handleSaveChoice(romData, "local", saveManager, this.rommClient.rommApi, undefined, onProgress);
         if (!finalLaunchResult.success) {
           throw new Error(`Failed to handle local save choice: ${finalLaunchResult.error}`);
         }
@@ -515,7 +517,7 @@ export class RomManager {
       } else {
         // For no saves, use handleSaveChoice with "none"
         console.log("[LAUNCH FLOW] Handling fresh start (no saves)");
-        finalLaunchResult = await emulator.handleSaveChoice(romData, "none", saveManager, this.rommClient.rommApi);
+        finalLaunchResult = await emulator.handleSaveChoice(romData, "none", saveManager, this.rommClient.rommApi, undefined, onProgress);
         if (!finalLaunchResult.success) {
           throw new Error(`Failed to handle fresh start: ${finalLaunchResult.error}`);
         }

@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
-    "module": "CommonJS",
+    "module": "Node16",
     "target": "ESNext",
-    "moduleResolution": "node",
+    "moduleResolution": "node16",
     "strict": true,
     "noImplicitAny": true,
     "noImplicitThis": true,
@@ -20,22 +20,10 @@
     "outDir": "out",
     "rootDir": "src",
     "paths": {
-      "*": [
-        "./node_modules/*"
-      ]
+      "*": ["./node_modules/*"]
     },
     "types": []
   },
-  "include": [
-    "src/**/*",
-    "src/renderer/**/*",
-    "old/main.js",
-    "old/emulator-manager.js",
-    "old/save-manager.js"
-, "old/dolphin-emulator.js", "old/emulator.js"  ],
-  "exclude": [
-    "node_modules",
-    "out",
-    "src/renderer-react"
-  ]
+  "include": ["src/**/*", "src/renderer/**/*", "old/main.js", "old/emulator-manager.js", "old/save-manager.js", "old/romm-api.js"],
+  "exclude": ["node_modules", "out", "src/renderer-react"]
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Toasts } from "./components/common/Toasts";
 import { EmulatorsView } from "./components/emulators/EmulatorsView";
 import { Sidebar } from "./components/layout/Sidebar";
@@ -33,6 +33,12 @@ export function App() {
   const [saveChoice, setSaveChoice] = useState<any>(null);
   const [emulatorChoice, setEmulatorChoice] = useState<any>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const previousViews = useRef<View[]>([]);
+  const selectedPlatformRef = useRef(selectedPlatform);
+  const selectedRomRef = useRef(selectedRom);
+  const downloadRef = useRef(download);
+  const saveChoiceRef = useRef(saveChoice);
+  const emulatorChoiceRef = useRef(emulatorChoice);
 
   const notify = useCallback((message: string, type: Toast["type"] = "info") => {
     const id = Date.now();
@@ -46,6 +52,46 @@ export function App() {
     setRoms([]);
     setSearch("");
   }, []);
+
+  const navigateToView = useCallback((nextView: View) => {
+    setView((currentView) => {
+      if (currentView !== nextView) {
+        previousViews.current.push(currentView);
+      }
+      return nextView;
+    });
+
+  const goBack = useCallback(() => {
+    if (downloadRef.current) {
+      setDownload(null);
+      return;
+    }
+
+    if (saveChoiceRef.current) {
+      setSaveChoice(null);
+      return;
+    }
+
+    if (emulatorChoiceRef.current) {
+      setEmulatorChoice(null);
+      return;
+    }
+
+    if (selectedRomRef.current) {
+      setSelectedRom(null);
+      return;
+    }
+
+    if (selectedPlatformRef.current) {
+      resetPlatformView();
+      return;
+    }
+
+    const previousView = previousViews.current.pop();
+    if (previousView) {
+      setView(previousView);
+    }
+  }, [resetPlatformView]);
 
   const enrichRoms = useCallback(async (items: Rom[]) => {
     const enriched = await Promise.all(
@@ -166,9 +212,9 @@ export function App() {
       try {
         api.onRomDownloadProgress((progress) => {
           setDownload({
-            title: `Preparing ${rom.name}`,
+            title: progress.message || `Preparing ${rom.name}`,
             percent: Math.round(progress.percent || progress.progress || 0),
-            detail: progress.transferred && progress.total ? `${formatSize(progress.transferred)} / ${formatSize(progress.total)}` : undefined,
+            detail: progress.transferred && progress.total ? `${formatSize(progress.transferred)} / ${formatSize(progress.total)}` : progress.step,
           });
         });
 
@@ -229,6 +275,26 @@ export function App() {
     };
   }, [loadEmulators, loadInstalled, loadPlatforms, notify, refreshShell]);
 
+  useEffect(() => {
+    selectedPlatformRef.current = selectedPlatform;
+    selectedRomRef.current = selectedRom;
+    downloadRef.current = download;
+    saveChoiceRef.current = saveChoice;
+    emulatorChoiceRef.current = emulatorChoice;
+  }, [download, emulatorChoice, saveChoice, selectedPlatform, selectedRom]);
+
+  useEffect(() => {
+    const handleMouseBack = (event: MouseEvent) => {
+      if (event.button !== 3) return;
+      event.preventDefault();
+      event.stopPropagation();
+      goBack();
+    };
+
+    window.addEventListener("mouseup", handleMouseBack, { capture: true });
+    return () => window.removeEventListener("mouseup", handleMouseBack, { capture: true });
+  }, [goBack]);
+
   const filteredInstalled = useMemo(() => {
     return installedRoms.filter((rom) => {
       const matchesSearch = (rom.name || rom.fs_name || "").toLowerCase().includes(installedSearch.toLowerCase());
@@ -241,7 +307,7 @@ export function App() {
 
   return (
     <div className="flex h-full bg-ink text-slate-100">
-      <Sidebar view={view} user={user} onPlatforms={resetPlatformView} onView={setView} />
+      <Sidebar view={view} user={user} baseUrl={baseUrl} onPlatforms={resetPlatformView} onView={navigateToView} />
 
       <main className="flex min-w-0 flex-1 flex-col">
         <StatsBar stats={stats} />

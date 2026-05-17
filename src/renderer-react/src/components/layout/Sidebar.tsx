@@ -4,6 +4,15 @@ import { api } from "../../lib/api";
 import { classNames } from "../../lib/format";
 import type { View } from "../../types";
 
+function getInstanceDomain(baseUrl: string) {
+  if (!baseUrl) return "No RomM server configured";
+  try {
+    return new URL(baseUrl).hostname;
+  } catch {
+    return baseUrl;
+  }
+}
+
 function NavButton({ icon, label, active, onClick }: { icon: ReactNode; label: string; active: boolean; onClick: () => void }) {
   return (
     <button
@@ -22,19 +31,25 @@ function NavButton({ icon, label, active, onClick }: { icon: ReactNode; label: s
 export function Sidebar({
   view,
   user,
+  baseUrl,
   onPlatforms,
   onView,
 }: {
   view: View;
   user: any;
+  baseUrl: string;
   onPlatforms: () => void;
   onView: (view: View) => void;
 }) {
+  const instanceDomain = getInstanceDomain(baseUrl);
+
   return (
     <aside className="flex w-72 shrink-0 flex-col border-r border-line bg-panel">
       <div className="border-b border-line px-6 py-5">
         <div className="text-xl font-semibold tracking-normal">RomM Client</div>
-        <div className="mt-1 text-sm text-slate-400">Desktop library</div>
+        <div className="mt-1 truncate text-sm text-slate-400" title={baseUrl || instanceDomain}>
+          {instanceDomain}
+        </div>
       </div>
 
       <nav className="flex-1 p-3">

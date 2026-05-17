@@ -58,6 +58,8 @@ export interface SaveChoiceResult {
   saveDir?: string;
 }
 
+export type ProgressCallback = (progress: any) => void;
+
 /**
  * Base class for all emulators
  * Defines the common interface and functionality
@@ -226,7 +228,7 @@ export abstract class Emulator {
    * Handle save choice selection
    * Override in subclasses that support save choice
    */
-  public async handleSaveChoice(romData: any, saveChoice: string, saveManager: SaveManager, rommAPI: RommApi | null, saveId?: number): Promise<SaveChoiceResult> {
+  public async handleSaveChoice(romData: any, saveChoice: string, saveManager: SaveManager, rommAPI: RommApi | null, saveId?: number, onProgress?: ProgressCallback): Promise<SaveChoiceResult> {
     // Default implementation - just launch normally
     return this.launch(romData.rom, romData.saveDir);
   }
