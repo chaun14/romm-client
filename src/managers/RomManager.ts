@@ -145,6 +145,21 @@ export class RomManager {
     let ignoredExtensions = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".txt", ".nfo", ".md", ".7z", ".rar", ".pdf"];
     if (!rom.localFiles || rom.localFiles.length === 0) return false;
 
+    const existingFiles = rom.localFiles.filter((filePath) => {
+      try {
+        return fs.existsSync(filePath) && fs.statSync(filePath).isFile();
+      } catch {
+        return false;
+      }
+    });
+
+    if (existingFiles.length === 0) {
+      console.log(`[ROM INTEGRITY] Local ROM folder has no files for ${rom.name} (ID: ${rom.id})`);
+      return false;
+    }
+
+    rom.localFiles = existingFiles;
+
     // Check if there's a zip file in the ROM's files list
     const zipFile = Array.isArray(rom.files) ? rom.files.find((f) => f.file_name.endsWith(".zip")) : undefined;
     let useZipHash = false;
@@ -255,6 +270,9 @@ export class RomManager {
       onProgress({ step: "download", percent: 100, downloaded: "100.00", total: "100.00", message: "Download complete" });
       // Add the folder and files to localRoms
       const files = await fs.promises.readdir(romEmulatorPath);
+      if (files.length === 0) {
+        throw new Error(`ROM download completed but no files were written for ${rom.name}`);
+      }
       localRom = this.localRoms.find((r) => r.id === rom.id);
       if (!localRom) {
         (rom as LocalRom).localPath = romEmulatorPath;
@@ -271,6 +289,9 @@ export class RomManager {
       for (const zipFile of zipFiles) {
         const zipFilePath = path.join(localRom!.localPath, zipFile.file_name);
         console.log("[LAUNCH]" + `Extracting zip file (streaming): ${zipFilePath}`);
+        if (!fs.existsSync(zipFilePath)) {
+          throw new Error(`Downloaded ZIP file is missing: ${zipFile.file_name}`);
+        }
 
         // Use streaming extraction for large files
         try {

@@ -24,7 +24,7 @@ type RomDownloadProgress = {
   step?: string;
 };
 
-type RomStatus = Pick<Rom, "isCached" | "hasSaves" | "statusLoaded">;
+type RomStatus = Pick<Rom, "isCached" | "hasSaves" | "lastSaveDate" | "statusLoaded">;
 
 const initialLoadingSteps: LoadingStep[] = [
   { key: "url", label: "Checking RomM URL", status: "idle" },
@@ -193,6 +193,7 @@ export function App() {
         const status: RomStatus = {
           isCached: cacheResult.success ? Boolean(cacheResult.data ?? cacheResult.cached) : false,
           hasSaves: Boolean(savesResult.success && (savesResult.data ?? (savesResult.hasLocal || savesResult.hasCloud))),
+          lastSaveDate: savesResult.success ? savesResult.lastSaveDate || savesResult.localSaveDate || savesResult.cloudSaveDate || null : null,
           statusLoaded: true,
         };
 

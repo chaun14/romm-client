@@ -12,6 +12,16 @@ export function formatSize(bytes?: number) {
   return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
+export function formatDateTime(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
 export function romSize(rom: Rom) {
   return rom.file_size_bytes || rom.fs_size_bytes || rom.size || rom.files?.[0]?.file_size_bytes;
 }

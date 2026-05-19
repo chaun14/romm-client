@@ -1,6 +1,6 @@
 import { Gamepad2, HardDrive, Play, RefreshCw, Save, Trash2 } from "lucide-react";
 import { useEffect, useRef } from "react";
-import { buildImageUrl, classNames, formatSize, romPlatform, romSize } from "../../lib/format";
+import { buildImageUrl, classNames, formatDateTime, formatSize, romPlatform, romSize } from "../../lib/format";
 import type { Rom } from "../../types";
 import { Badge } from "../common/Badge";
 import { RemoteImage } from "../common/RemoteImage";
@@ -83,6 +83,7 @@ function InstalledList(props: Pick<InstalledViewProps, "roms" | "baseUrl" | "onO
     <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4">
       {props.roms.map((rom) => {
         const cover = buildImageUrl(rom.path_cover_small || rom.url_cover, props.baseUrl);
+        const lastSaveDate = formatDateTime(rom.lastSaveDate);
         return (
           <article
             key={rom.id}
@@ -105,6 +106,7 @@ function InstalledList(props: Pick<InstalledViewProps, "roms" | "baseUrl" | "onO
                 <div className="truncate font-semibold">{rom.name || rom.fs_name}</div>
                 <div className="mt-1 truncate text-sm text-slate-400">{romPlatform(rom)}</div>
                 <div className="mt-1 text-xs text-slate-500">{formatSize(romSize(rom))}</div>
+                {lastSaveDate ? <div className="mt-1 truncate text-xs text-blue-200">Last save {lastSaveDate}</div> : null}
                 <div className="mt-2 flex gap-2">
                   <Badge icon={<HardDrive />} label="Local" tone="green" />
                   {rom.hasSaves ? <Badge icon={<Save />} label="Save" tone="blue" /> : null}

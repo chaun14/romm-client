@@ -371,13 +371,17 @@ export class RommApi {
     try {
       let totalToDownload = 0;
       const toDownload: Map<number, { endpoint: string; dest_path: string; rom: Rom | LocalRom }> = new Map();
+      await fs.promises.mkdir(path, { recursive: true });
+
+      const romFiles = Array.isArray(rom.files) ? rom.files : [];
       if (rom.has_simple_single_file) {
-        toDownload.set(rom.id, { endpoint: `/api/roms/${rom.id}/content/${encodeURIComponent(rom.fs_name)}`, dest_path: path + "/" + rom.fs_name, rom });
-        totalToDownload += rom.fs_size_bytes;
-      }
-      if (rom.has_multiple_files) {
-        for (let file of rom.files) {
-          toDownload.set(file.id, { endpoint: `/api/roms/${rom.id}/content/${encodeURIComponent(rom.fs_name)}?file_ids=${file.id}`, dest_path: path + "/" + file.file_name, rom });
+        const singleFile = romFiles[0];
+        const fileName = singleFile?.file_name || rom.fs_name;
+        toDownload.set(singleFile?.id || rom.id, { endpoint: `/api/roms/${rom.id}/content/${encodeURIComponent(rom.fs_name)}`, dest_path: `${path}/${fileName}`, rom });
+        totalToDownload += singleFile?.file_size_bytes || rom.fs_size_bytes || 0;
+      } else if (rom.has_multiple_files || rom.has_nested_single_file || romFiles.length > 0) {
+        for (let file of romFiles) {
+          toDownload.set(file.id, { endpoint: `/api/roms/${rom.id}/content/${encodeURIComponent(rom.fs_name)}?file_ids=${file.id}`, dest_path: `${path}/${file.file_name}`, rom });
           totalToDownload += file.file_size_bytes;
         }
       }
@@ -385,12 +389,16 @@ export class RommApi {
       console.log(
         `Downloading ROM: ${rom.id}, File: ${rom.fs_name}, url: ${Array.from(toDownload.values())
           .map((item) => item.endpoint)
-          .join(", ")}`
-      );
+            .join(", ")}`
+        );
 
-      let fileCount = 0;
-      let totalFiles = toDownload.size;
-      for (let [id, { endpoint, dest_path, rom }] of toDownload) {
+        if (toDownload.size === 0) {
+          throw new Error(`No downloadable files found for ROM ${rom.id} (${rom.name || rom.fs_name})`);
+        }
+
+        let fileCount = 0;
+        let totalFiles = toDownload.size;
+        for (let [id, { endpoint, dest_path, rom }] of toDownload) {
         fileCount++;
         const client = await this.getClient();
         const response = await client.get(endpoint, {
@@ -411,15 +419,21 @@ export class RommApi {
               });
             }
           },
-        });
+          });
+  
+          if (response.status !== 200) {
+            throw new Error(`Failed to download ROM file ${id}: HTTP ${response.status}`);
+          }
 
-        if (response.status == 200) {
           await fs.promises.writeFile(dest_path, Buffer.from(response.data));
+          const stats = await fs.promises.stat(dest_path);
+          if (!stats.isFile() || stats.size === 0) {
+            throw new Error(`Downloaded ROM file ${id} is empty or missing: ${dest_path}`);
+          }
           console.log(`Downloaded ROM file ID: ${id} to ${dest_path}`);
         }
-      }
-
-      return { success: true };
+  
+        return { success: true };
     } catch (error: any) {
       return this.handleApiError(error);
     }

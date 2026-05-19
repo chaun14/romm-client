@@ -34,6 +34,7 @@ export type Rom = {
   summary?: string;
   isCached?: boolean;
   hasSaves?: boolean;
+  lastSaveDate?: string | null;
   statusLoading?: boolean;
   statusLoaded?: boolean;
 };
