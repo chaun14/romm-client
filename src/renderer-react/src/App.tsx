@@ -115,14 +115,19 @@ export function App() {
     });
   }, []);
 
+  const cancelSaveChoice = useCallback(() => {
+    events.sendSaveChoice?.("cancel");
+    setSaveChoice(null);
+  }, []);
+
   const goBack = useCallback(() => {
-    if (downloadRef.current) {
-      setDownload(null);
+    if (saveChoiceRef.current) {
+      cancelSaveChoice();
       return;
     }
 
-    if (saveChoiceRef.current) {
-      setSaveChoice(null);
+    if (downloadRef.current) {
+      setDownload(null);
       return;
     }
 
@@ -145,7 +150,7 @@ export function App() {
     if (previousView) {
       setView(previousView);
     }
-  }, [resetPlatformView]);
+  }, [cancelSaveChoice, resetPlatformView]);
 
   const withCachedStatus = useCallback((items: Rom[], defaults: Partial<Rom> = {}) => {
     return items
@@ -731,7 +736,7 @@ export function App() {
             setSaveChoice(null);
           }}
           fallbackLabel="Use local save"
-          onClose={() => setSaveChoice(null)}
+          onClose={cancelSaveChoice}
         />
       ) : null}
 

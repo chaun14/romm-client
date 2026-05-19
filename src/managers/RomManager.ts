@@ -478,6 +478,18 @@ export class RomManager {
           });
           selectedSaveOption = choiceResult.choice || "local";
           selectedSaveId = choiceResult.saveId;
+
+          if (selectedSaveOption === "cancel") {
+            console.log("[LAUNCH FLOW] Launch cancelled during save selection");
+            try {
+              if (fs.existsSync(tempSaveDir)) {
+                fs.rmSync(tempSaveDir, { recursive: true, force: true });
+              }
+            } catch (cleanupError: any) {
+              console.warn(`[LAUNCH FLOW] Failed to clean up cancelled session directory: ${cleanupError.message}`);
+            }
+            throw new Error("Launch cancelled");
+          }
         }
       }
 
