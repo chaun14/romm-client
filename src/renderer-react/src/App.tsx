@@ -478,9 +478,12 @@ export function App() {
   }, [loadInitialData, notify, refreshShell, resetLoadingSteps, setLoadingStep]);
 
   useEffect(() => {
-    api.config.getVersion().then((result) => {
+    const loadAppVersion = async () => {
+      const result = await api.config.getVersion();
       if (result.success && result.data) setAppVersion(result.data);
-    });
+    };
+
+    loadAppVersion();
 
     events.onUpdateAvailable?.((info: any) => {
       setUpdate({

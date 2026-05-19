@@ -100,7 +100,14 @@ export class RomManager {
     for (const dirent of platformFolders) {
       if (dirent.isDirectory()) {
         const platformPath = path.join(romFolder, dirent.name);
-        const romDirs = await fs.promises.readdir(platformPath, { withFileTypes: true });
+        let romDirs: fs.Dirent[];
+        try {
+          romDirs = await fs.promises.readdir(platformPath, { withFileTypes: true });
+        } catch (error: any) {
+          console.warn(`[ROM MANAGER] Skipping platform folder ${platformPath}: ${error.code || error.message}`);
+          continue;
+        }
+
         for (const romDirent of romDirs) {
           if (romDirent.isDirectory() && romDirent.name.startsWith("rom_")) {
             const romId = romDirent.name.replace("rom_", "");
@@ -121,7 +128,19 @@ export class RomManager {
 
             if (rom) {
               const romPath = path.join(platformPath, romDirent.name);
-              const files = await fs.promises.readdir(romPath);
+              let files: string[];
+              try {
+                files = await fs.promises.readdir(romPath);
+              } catch (error: any) {
+                console.warn(`[ROM MANAGER] Skipping local ROM folder ${romPath}: ${error.code || error.message}`);
+                continue;
+              }
+
+              if (files.length === 0) {
+                console.warn(`[ROM MANAGER] Skipping empty local ROM folder ${romPath}`);
+                continue;
+              }
+
               const localRom: LocalRom = {
                 ...rom,
                 localPath: romPath,
@@ -138,6 +157,31 @@ export class RomManager {
 
   private saveRoms(): void {
     // Save ROMs to storage (e.g., file system, database)
+  }
+
+  private async ensureDirectory(dirPath: string, label: string): Promise<void> {
+    try {
+      const stats = await fs.promises.stat(dirPath);
+      if (!stats.isDirectory()) {
+        throw new Error(`${label} path exists but is not a directory: ${dirPath}`);
+      }
+      return;
+    } catch (error: any) {
+      if (error.code !== "ENOENT") {
+        throw new Error(`Cannot access ${label} directory (${error.code || error.message}): ${dirPath}`);
+      }
+    }
+
+    try {
+      await fs.promises.mkdir(dirPath, { recursive: true });
+    } catch (error: any) {
+      if (error.code === "EEXIST") {
+        const stats = await fs.promises.stat(dirPath);
+        if (stats.isDirectory()) return;
+      }
+
+      throw new Error(`Cannot create ${label} directory (${error.code || error.message}): ${dirPath}`);
+    }
   }
 
   private async checkRomIntegrity(rom: LocalRom): Promise<boolean> {
@@ -256,13 +300,10 @@ export class RomManager {
       let romFolder = this.rommClient.getRomFolder();
       if (!romFolder) throw new Error("ROM folder not set");
       let romEmulatorSlug = rom.platform_slug || "unknown";
-      let romEmulatorPath = path.join(romFolder, romEmulatorSlug, "rom_" + rom.id);
-      if (!fs.existsSync(romEmulatorPath)) {
-        fs.mkdirSync(romEmulatorPath, { recursive: true });
-      }
-      if (!fs.existsSync(path.join(romFolder, romEmulatorSlug))) {
-        fs.mkdirSync(path.join(romFolder, romEmulatorSlug), { recursive: true });
-      }
+      const platformRomPath = path.join(romFolder, romEmulatorSlug);
+      const romEmulatorPath = path.join(platformRomPath, "rom_" + rom.id);
+      await this.ensureDirectory(platformRomPath, "platform ROM");
+      await this.ensureDirectory(romEmulatorPath, "ROM");
       if (!this.rommClient.rommApi) throw new Error("RomM API is not initialized");
       onProgress({ step: "download", percent: 0, downloaded: "0.00", total: "0.00", message: "Starting download..." });
       let dlres = await this.rommClient.rommApi.downloadRom(rom, romEmulatorPath, onProgress);

@@ -1,6 +1,6 @@
 {
   "name": "romm-client",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "description": "Electron app that plugs into the RomM API to provide a desktop experience",
   "main": "./out/main.js",
   "scripts": {
@@ -33,7 +33,7 @@
     "@types/unzipper": "^0.10.11",
     "@vitejs/plugin-react": "^6.0.1",
     "autoprefixer": "^10.5.0",
-    "electron": "^39.7.0",
+    "electron": "^42.2.0",
     "electron-builder": "^26.8.1",
     "postcss": "^8.5.14",
     "tailwindcss": "^4.3.0",
@@ -42,7 +42,7 @@
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
-    "axios": "^1.6.2",
+    "axios": "^1.16.1",
     "crc-32": "^1.2.2",
     "dotenv": "^17.3.1",
     "electron-updater": "^6.8.3",
