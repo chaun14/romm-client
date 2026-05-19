@@ -10,7 +10,7 @@ import { DownloadModal } from "./components/modals/DownloadModal";
 import { RomModal } from "./components/modals/RomModal";
 import { PlatformsView } from "./components/platforms/PlatformsView";
 import { InstalledView } from "./components/roms/InstalledView";
-import { SettingsView } from "./components/settings/SettingsView";
+import { SettingsView, type UpdateState } from "./components/settings/SettingsView";
 import { api, asArray, events, getResultData, pageSize } from "./lib/api";
 import { formatSize, romPlatform } from "./lib/format";
 import type { DownloadState, Platform, Rom, Toast, View } from "./types";
@@ -36,6 +36,15 @@ const initialLoadingSteps: LoadingStep[] = [
 const loadingStepDelayMs = 350;
 const delay = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
+function formatReleaseNotes(notes: unknown) {
+  if (!notes) return "";
+  if (typeof notes === "string") return notes;
+  if (Array.isArray(notes)) {
+    return notes.map((item: any) => item?.note || item?.version || String(item)).join("\n");
+  }
+  return String(notes);
+}
+
 export function App() {
   const [view, setView] = useState<View>("platforms");
   const [authChecking, setAuthChecking] = useState(true);
@@ -60,6 +69,8 @@ export function App() {
   const [saveChoice, setSaveChoice] = useState<any>(null);
   const [emulatorChoice, setEmulatorChoice] = useState<any>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [appVersion, setAppVersion] = useState("");
+  const [update, setUpdate] = useState<UpdateState>({ status: "idle", percent: 0 });
   const previousViews = useRef<View[]>([]);
   const selectedPlatformRef = useRef(selectedPlatform);
   const selectedRomRef = useRef(selectedRom);
@@ -68,9 +79,12 @@ export function App() {
   const emulatorChoiceRef = useRef(emulatorChoice);
   const romStatusCacheRef = useRef<Map<number, RomStatus>>(new Map());
   const romStatusInFlightRef = useRef<Set<number>>(new Set());
+  const toastIdRef = useRef(0);
+  const updateCheckStartedRef = useRef(false);
 
   const notify = useCallback((message: string, type: Toast["type"] = "info") => {
-    const id = Date.now();
+    toastIdRef.current += 1;
+    const id = toastIdRef.current;
     setToasts((items) => [...items, { id, type, message }]);
     window.setTimeout(() => setToasts((items) => items.filter((toast) => toast.id !== id)), 4500);
   }, []);
@@ -339,6 +353,39 @@ export function App() {
     [clearRomStatus, loadInstalled, notify],
   );
 
+  const checkForUpdates = useCallback(
+    async (background = false) => {
+      setUpdate((current) => ({ ...current, status: "checking", message: background ? "Checking in background..." : undefined }));
+      const result = await api.updates.check();
+      if (!result.success) {
+        setUpdate({ status: "error", percent: 0, message: result.error || "Unable to check for updates" });
+        if (!background) notify(result.error || "Unable to check for updates", "error");
+        return;
+      }
+
+      if (result.data?.devMode) {
+        setUpdate({ status: "none", percent: 0, message: "Updates are checked only in packaged builds" });
+      }
+    },
+    [notify],
+  );
+
+  const downloadUpdate = useCallback(async () => {
+    setUpdate((current) => ({ ...current, status: "downloading", percent: current.percent || 0 }));
+    const result = await api.updates.download();
+    if (!result.success) {
+      setUpdate((current) => ({ ...current, status: "error", message: result.error || "Unable to download update" }));
+      notify(result.error || "Unable to download update", "error");
+    }
+  }, [notify]);
+
+  const installUpdate = useCallback(async () => {
+    const result = await api.updates.install();
+    if (!result?.success) {
+      notify(result?.error || "Unable to install update", "error");
+    }
+  }, [notify]);
+
   const loadInitialData = useCallback(async () => {
     setLoadingStep("cache", "pending", "Loading library metadata");
     await delay(loadingStepDelayMs);
@@ -416,7 +463,6 @@ export function App() {
     events.onSaveChoiceModal?.((data: any) => setSaveChoice(data));
     events.onEmulatorChoiceModal?.((data: any) => setEmulatorChoice(data));
     events.onRomLaunched?.((data: any) => notify(`${data?.rom?.name || "ROM"} launched`, "success"));
-    events.onRomLaunchFailed?.((data: any) => notify(data?.error || "Launch failed", "error"));
 
     return () => {
       events.removeSaveChoiceListener?.();
@@ -424,6 +470,60 @@ export function App() {
       events.removeRomLaunchListeners?.();
     };
   }, [loadInitialData, notify, refreshShell, resetLoadingSteps, setLoadingStep]);
+
+  useEffect(() => {
+    api.config.getVersion().then((result) => {
+      if (result.success && result.data) setAppVersion(result.data);
+    });
+
+    events.onUpdateAvailable?.((info: any) => {
+      setUpdate({
+        status: "available",
+        version: info?.version,
+        releaseNotes: formatReleaseNotes(info?.releaseNotes),
+        percent: 0,
+      });
+    });
+
+    events.onUpdateNotAvailable?.(() => {
+      setUpdate({ status: "none", percent: 0, message: "You are on the latest version" });
+    });
+
+    events.onUpdateDownloadProgress?.((progress: any) => {
+      setUpdate((current) => ({
+        ...current,
+        status: "downloading",
+        percent: Math.max(0, Math.min(100, Math.round(progress?.percent || 0))),
+      }));
+    });
+
+    events.onUpdateDownloaded?.((info: any) => {
+      setUpdate((current) => ({
+        ...current,
+        status: "downloaded",
+        version: info?.version || current.version,
+        percent: 100,
+        message: "Update ready to install",
+      }));
+      notify("Update ready to install", "success");
+    });
+
+    events.onUpdateError?.((error: any) => {
+      setUpdate((current) => ({
+        ...current,
+        status: "error",
+        message: error?.message || "Update failed",
+      }));
+    });
+
+    return () => events.removeUpdateListeners?.();
+  }, [notify]);
+
+  useEffect(() => {
+    if (!authenticated || updateCheckStartedRef.current) return;
+    updateCheckStartedRef.current = true;
+    window.setTimeout(() => checkForUpdates(true), 1500);
+  }, [authenticated, checkForUpdates]);
 
   useEffect(() => {
     selectedPlatformRef.current = selectedPlatform;
@@ -475,7 +575,7 @@ export function App() {
 
   return (
     <div className="flex h-full bg-ink text-slate-100">
-      <Sidebar view={view} user={user} baseUrl={baseUrl} onPlatforms={resetPlatformView} onView={navigateToView} />
+      <Sidebar view={view} user={user} baseUrl={baseUrl} updateAvailable={update.status === "available" || update.status === "downloaded"} onPlatforms={resetPlatformView} onView={navigateToView} />
 
       <main className="flex min-w-0 flex-1 flex-col">
         <StatsBar stats={stats} />
@@ -527,10 +627,42 @@ export function App() {
               onSave={async (key, value) => {
                 const result = await api.emulator.saveConfig(key, value);
                 if (result.success) {
-                  notify("Emulator path saved", "success");
+                  notify(value.trim() ? "Emulator path saved" : "Emulator unregistered", "success");
                   loadEmulators();
                 } else {
                   notify(result.error || "Unable to save emulator path", "error");
+                }
+                }}
+                onConfigure={async (key, value) => {
+                  const emulatorName = emulators[key]?.name || key;
+                  const emulatorPath = value.trim();
+                  if (!emulatorPath) {
+                    notify(`Please set the path for ${emulatorName} first`, "error");
+                    return;
+                  }
+
+                  const saveResult = await api.emulator.saveConfig(key, emulatorPath);
+                  if (!saveResult.success) {
+                    notify(saveResult.error || "Unable to save emulator path", "error");
+                    return;
+                  }
+
+                  notify(`Starting ${emulatorName} in configuration mode...`, "info");
+                  const result = await api.emulator.configureEmulator(key, emulatorPath);
+                  if (result.success) {
+                    notify(`${emulatorName} configuration started`, "success");
+                    loadEmulators();
+                  } else {
+                    notify(result.error || "Configuration failed", "error");
+                  }
+                }}
+                onUnregister={async (key) => {
+                  const result = await api.emulator.unregister(key);
+                if (result.success) {
+                  notify("Emulator unregistered", "success");
+                  loadEmulators();
+                } else {
+                  notify(result.error || "Unable to unregister emulator", "error");
                 }
               }}
             />
@@ -540,12 +672,19 @@ export function App() {
             <SettingsView
               user={user}
               baseUrl={baseUrl}
+              version={appVersion}
+              update={update}
               onRefresh={refreshShell}
+              onCheckUpdates={() => checkForUpdates(false)}
+              onDownloadUpdate={downloadUpdate}
+              onInstallUpdate={installUpdate}
               notify={notify}
               onLoggedOut={() => {
                 setAuthenticated(false);
                 setUser(null);
                 setStats(null);
+                updateCheckStartedRef.current = false;
+                setUpdate({ status: "idle", percent: 0 });
                 resetPlatformView();
               }}
             />

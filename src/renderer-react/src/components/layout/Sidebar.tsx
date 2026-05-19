@@ -13,7 +13,7 @@ function getInstanceDomain(baseUrl: string) {
   }
 }
 
-function NavButton({ icon, label, active, onClick }: { icon: ReactNode; label: string; active: boolean; onClick: () => void }) {
+function NavButton({ icon, label, active, badge, onClick }: { icon: ReactNode; label: string; active: boolean; badge?: string; onClick: () => void }) {
   return (
     <button
       className={classNames(
@@ -23,7 +23,8 @@ function NavButton({ icon, label, active, onClick }: { icon: ReactNode; label: s
       onClick={onClick}
     >
       <span className="[&>svg]:h-4 [&>svg]:w-4">{icon}</span>
-      {label}
+      <span className="mr-auto">{label}</span>
+      {badge ? <span className="rounded-full bg-rose-500 px-2 py-0.5 text-[10px] font-semibold uppercase text-white">{badge}</span> : null}
     </button>
   );
 }
@@ -32,12 +33,14 @@ export function Sidebar({
   view,
   user,
   baseUrl,
+  updateAvailable,
   onPlatforms,
   onView,
 }: {
   view: View;
   user: any;
   baseUrl: string;
+  updateAvailable: boolean;
   onPlatforms: () => void;
   onView: (view: View) => void;
 }) {
@@ -56,7 +59,7 @@ export function Sidebar({
         <NavButton icon={<Boxes />} label="Platforms" active={view === "platforms"} onClick={onPlatforms} />
         <NavButton icon={<HardDrive />} label="Installed" active={view === "installed"} onClick={() => onView("installed")} />
         <NavButton icon={<SlidersHorizontal />} label="Emulators" active={view === "emulators"} onClick={() => onView("emulators")} />
-        <NavButton icon={<Settings />} label="Settings" active={view === "settings"} onClick={() => onView("settings")} />
+        <NavButton icon={<Settings />} label="Settings" active={view === "settings"} badge={updateAvailable ? "Update" : undefined} onClick={() => onView("settings")} />
       </nav>
 
       <div className="space-y-3 border-t border-line p-4">

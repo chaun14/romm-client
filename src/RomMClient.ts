@@ -108,13 +108,6 @@ export class RommClient extends BrowserWindow {
 
       await this.authenticateSavedSession();
 
-      if (!process.argv.includes("--dev")) {
-        setTimeout(() => {
-          console.log("Checking for updates now...");
-          autoUpdater.checkForUpdates();
-        }, 1000);
-      }
-
       // Open DevTools in development mode
       if (process.argv.includes("--dev")) {
         this.webContents.openDevTools();
@@ -144,6 +137,9 @@ export class RommClient extends BrowserWindow {
 
     autoUpdater.on("update-not-available", (info: UpdateInfo) => {
       console.log("[AUTO-UPDATER] No updates available");
+      this.webContents.send("update-not-available", {
+        version: info.version,
+      });
     });
 
     autoUpdater.on("download-progress", (progressObj: ProgressInfo) => {

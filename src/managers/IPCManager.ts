@@ -426,6 +426,11 @@ export class IPCManager {
       return { success: true };
     });
 
+    ipcMain.handle("emulator:unregister", async (event, emulatorKey) => {
+      console.log("[IPC]" + `Unregistering emulator: ${emulatorKey}`);
+      return this.emulatorManager.unregisterConfiguration(emulatorKey);
+    });
+
     ipcMain.handle("emulator:configure-emulator", async (event, { emulatorKey, emulatorPath }) => {
       console.log("[IPC]" + `Configuring emulator: ${emulatorKey} at path: ${emulatorPath}`);
       return this.emulatorManager.configureEmulatorInConfigMode(emulatorKey, emulatorPath);
@@ -754,6 +759,10 @@ export class IPCManager {
     // IPC handlers for updates
     ipcMain.handle("update:check", async () => {
       try {
+        if (!app.isPackaged) {
+          return { success: true, data: { updateAvailable: false, devMode: true, currentVersion: app.getVersion() } };
+        }
+
         const result = await autoUpdater.checkForUpdates();
         return { success: true, data: result };
       } catch (error: any) {
@@ -763,6 +772,10 @@ export class IPCManager {
 
     ipcMain.handle("update:download", async () => {
       try {
+        if (!app.isPackaged) {
+          return { success: false, error: "Updates are only available in packaged builds" };
+        }
+
         await autoUpdater.downloadUpdate();
         return { success: true };
       } catch (error: any) {
@@ -771,7 +784,12 @@ export class IPCManager {
     });
 
     ipcMain.handle("update:install", () => {
+      if (!app.isPackaged) {
+        return { success: false, error: "Updates are only available in packaged builds" };
+      }
+
       autoUpdater.quitAndInstall(false, true);
+      return { success: true };
     });
   }
 

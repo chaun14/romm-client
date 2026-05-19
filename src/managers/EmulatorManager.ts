@@ -137,6 +137,11 @@ export class EmulatorManager {
   }
 
   saveConfiguration(emulatorKey: string, path: string): void {
+    if (!path.trim()) {
+      this.unregisterConfiguration(emulatorKey);
+      return;
+    }
+
     if (!this.rommClient.settings.emulators) {
       this.rommClient.settings.emulators = [];
     }
@@ -154,6 +159,25 @@ export class EmulatorManager {
     this.rommClient.appSettingsManager.saveSettings();
 
     console.log("EmulatorManager: saved configuration for", emulatorKey, "path:", path);
+  }
+
+  unregisterConfiguration(emulatorKey: string): { success: boolean; error?: string } {
+    if (emulatorKey === "rommIntegrated") {
+      return { success: false, error: "Integrated emulator cannot be unregistered" };
+    }
+
+    if (!this.supportedEmulators[emulatorKey]) {
+      return { success: false, error: `Unknown emulator: ${emulatorKey}` };
+    }
+
+    this.rommClient.settings.emulators = (this.rommClient.settings.emulators || []).filter((emulator) => emulator.name !== emulatorKey);
+    delete this.emulatorInstances[emulatorKey];
+
+    this.rommClient.appSettingsManager.setSetting("emulators", this.rommClient.settings.emulators);
+    this.rommClient.appSettingsManager.saveSettings();
+
+    console.log("EmulatorManager: unregistered configuration for", emulatorKey);
+    return { success: true };
   }
 
   /**

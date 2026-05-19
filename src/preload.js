@@ -72,6 +72,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
             ipcRenderer.invoke('emulator:configure-emulator', { emulatorKey, emulatorPath }),
         getConfigs: () => ipcRenderer.invoke('emulator:get-configs'),
         saveConfig: (emulatorKey, path) => ipcRenderer.invoke('emulator:saveConfig', { emulatorKey, path }),
+        unregister: (emulatorKey) => ipcRenderer.invoke('emulator:unregister', emulatorKey),
         isPlatformSupported: (platform) => ipcRenderer.invoke('emulator:is-platform-supported', platform),
         getSupportedPlatforms: () => ipcRenderer.invoke('emulator:get-supported-platforms'),
         getSupportedEmulators: () => ipcRenderer.invoke('emulator:get-supported-emulators')
@@ -205,6 +206,9 @@ contextBridge.exposeInMainWorld('electronEvents', {
     onUpdateAvailable: (callback) => {
         ipcRenderer.on('update-available', (event, data) => callback(data));
     },
+    onUpdateNotAvailable: (callback) => {
+        ipcRenderer.on('update-not-available', (event, data) => callback(data));
+    },
     onUpdateDownloadProgress: (callback) => {
         ipcRenderer.on('update-download-progress', (event, data) => callback(data));
     },
@@ -216,6 +220,7 @@ contextBridge.exposeInMainWorld('electronEvents', {
     },
     removeUpdateListeners: () => {
         ipcRenderer.removeAllListeners('update-available');
+        ipcRenderer.removeAllListeners('update-not-available');
         ipcRenderer.removeAllListeners('update-download-progress');
         ipcRenderer.removeAllListeners('update-downloaded');
         ipcRenderer.removeAllListeners('update-error');
