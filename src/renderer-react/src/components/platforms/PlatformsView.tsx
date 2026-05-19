@@ -21,6 +21,7 @@ export function PlatformsView(props: {
   onPlatformClick: (platform: Platform) => void;
   onOpenRom: (rom: Rom) => void;
   onOpenInRomm: (rom: Rom) => void;
+  onVisibleRom: (rom: Rom) => void;
 }) {
   const platformsWithRoms = useMemo(() => props.platforms.filter((platform) => (platform.rom_count || 0) > 0), [props.platforms]);
 
@@ -44,7 +45,7 @@ export function PlatformsView(props: {
             <RefreshCw className="h-4 w-4" />
           </IconButton>
         </HeaderActions>
-        {props.loading ? <LoadingState /> : <RomGrid roms={props.roms} baseUrl={props.baseUrl} onOpenRom={props.onOpenRom} onOpenInRomm={props.onOpenInRomm} />}
+        {props.loading ? <LoadingState /> : <RomGrid roms={props.roms} baseUrl={props.baseUrl} onOpenRom={props.onOpenRom} onOpenInRomm={props.onOpenInRomm} onVisibleRom={props.onVisibleRom} />}
       </>
     );
   }

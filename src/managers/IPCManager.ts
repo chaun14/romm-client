@@ -1,4 +1,5 @@
-import { app, ipcMain, BrowserWindow } from "electron";
+import { app, ipcMain, BrowserWindow, shell } from "electron";
+import fs from "fs";
 import path from "path";
 import { RommClient } from "../RomMClient";
 import { autoUpdater } from "electron-updater";
@@ -28,6 +29,18 @@ export class IPCManager {
     // load config related IPC handlers
     ipcMain.handle("config:get-version", async () => {
       return { success: true, data: app.getVersion() };
+    });
+
+    ipcMain.handle("config:open-work-folder", async () => {
+      const workFolder = path.join(process.env.APPDATA || process.env.HOME || app.getPath("userData"), "romm-client");
+      await fs.promises.mkdir(workFolder, { recursive: true });
+      const error = await shell.openPath(workFolder);
+
+      if (error) {
+        return { success: false, error };
+      }
+
+      return { success: true, data: workFolder };
     });
 
     // Console logging from renderer process
@@ -300,7 +313,10 @@ export class IPCManager {
 
     ipcMain.handle("roms:fetch-local", async () => {
       console.log("[IPC]" + `Fetching local ROMs`);
-      if (this.rommClient.rommApi) return this.rommClient.romManager?.getLocalRoms();
+      if (this.rommClient.rommApi && this.rommClient.romManager) {
+        await this.rommClient.romManager.loadLocalRoms();
+        return this.rommClient.romManager.getLocalRoms();
+      }
       else throw new Error("RomM API is not initialized");
     });
 
@@ -488,6 +504,9 @@ export class IPCManager {
 
     ipcMain.handle("rom:check-cache", async (event, rom) => {
       try {
+        if (this.rommClient.romManager && this.rommClient.romManager.getLocalRoms().length === 0) {
+          await this.rommClient.romManager.loadLocalRoms();
+        }
         const localRom = this.rommClient.romManager?.getLocalRomById(rom.id);
         return {
           success: true,
@@ -635,6 +654,11 @@ export class IPCManager {
     // Emulator Launch with complete save flow
     ipcMain.handle("roms:launch", async (event, { rom, emulatorPath }) => {
       console.log("[IPC]" + `Launching ROM with saves flow: ${rom.name} (ID: ${rom.id})`);
+
+      if (emulatorPath === "rommIntegrated") {
+        console.log("[IPC] Launch requested with integrated emulator");
+        return await this.launchWithIntegratedEmulator(rom);
+      }
 
       // Create progress callback to send updates to renderer
       const onProgress = (progress: any) => {

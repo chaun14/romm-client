@@ -1,4 +1,4 @@
-import { Cloud, LogOut, RefreshCw } from "lucide-react";
+import { Cloud, FolderOpen, LogOut, RefreshCw } from "lucide-react";
 import { api } from "../../lib/api";
 import type { Toast } from "../../types";
 import { HeaderActions, IconButton } from "../layout/HeaderActions";
@@ -37,21 +37,38 @@ export function SettingsView({
             <div className="mt-1">Role: {user.role || "-"}</div>
           </div>
         ) : null}
-        <button
-          className="flex items-center gap-2 rounded-md border border-rose-400/40 px-4 py-2 text-sm text-rose-100 hover:bg-rose-500/10"
-          onClick={async () => {
-            const result = await api.config.logout();
-            if (result.success) {
-              notify("Logged out", "success");
-              onLoggedOut();
-            } else {
-              notify(result.error || "Logout failed", "error");
-            }
-          }}
-        >
-          <LogOut className="h-4 w-4" />
-          Logout
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button
+            className="flex items-center gap-2 rounded-md border border-line px-4 py-2 text-sm text-slate-100 hover:bg-panel-soft"
+            onClick={async () => {
+              const result = await api.config.openWorkFolder();
+              if (result.success) {
+                notify("Work folder opened", "success");
+              } else {
+                notify(result.error || "Unable to open work folder", "error");
+              }
+            }}
+          >
+            <FolderOpen className="h-4 w-4" />
+            Open work folder
+          </button>
+
+          <button
+            className="flex items-center gap-2 rounded-md border border-rose-400/40 px-4 py-2 text-sm text-rose-100 hover:bg-rose-500/10"
+            onClick={async () => {
+              const result = await api.config.logout();
+              if (result.success) {
+                notify("Logged out", "success");
+                onLoggedOut();
+              } else {
+                notify(result.error || "Logout failed", "error");
+              }
+            }}
+          >
+            <LogOut className="h-4 w-4" />
+            Logout
+          </button>
+        </div>
       </div>
     </>
   );

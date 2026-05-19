@@ -34,6 +34,8 @@ export type Rom = {
   summary?: string;
   isCached?: boolean;
   hasSaves?: boolean;
+  statusLoading?: boolean;
+  statusLoaded?: boolean;
 };
 
 export type Toast = {

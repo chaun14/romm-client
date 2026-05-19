@@ -21,6 +21,7 @@ type RommApiBridge = {
     hasSavedSession: () => Promise<boolean>;
     authenticateWithSavedSession: () => Promise<ApiResult>;
     getVersion: () => Promise<ApiResult<string>>;
+    openWorkFolder: () => Promise<ApiResult<string>>;
   };
   roms: Record<string, (...args: any[]) => Promise<any>>;
   emulator: Record<string, (...args: any[]) => Promise<any>>;
