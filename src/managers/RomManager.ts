@@ -435,7 +435,7 @@ export class RomManager {
 
       // Step 1: Ensure ROM is available (download if needed) - only for external emulators
       const launchResult = await this.launchRom(rom, onProgress, () => {}, () => {
-        onProgress({ step: "download", percent: 100, downloaded: "100.00", total: "100.00", message: "ROM ready" });
+        onProgress({ step: "download", percent: 100, downloaded: "100.00", total: "100.00", message: "ROM ready", complete: true });
       });
       if (!launchResult.success) {
         throw new Error("Failed to prepare ROM for launch");
