@@ -1,21 +1,46 @@
-import axios, { AxiosInstance } from "axios";
 import fs, { readFileSync, existsSync } from "fs";
 import type { ApiResponse, DownloadProgress, RomOptions, HeartbeatResponse, User, ConfigResponse, Platform, StatsResponse, Rom, RomDetails, RomsResponse, LocalRom } from "../types/RommApi";
 const FormData = require("form-data");
+
+type HttpClient = {
+  get: (url: string, options?: any) => Promise<any>;
+  post: (url: string, data?: any, options?: any) => Promise<any>;
+};
+
+type AxiosModule = {
+  default: {
+    create: (options: any) => HttpClient;
+    get: HttpClient["get"];
+    post: HttpClient["post"];
+  };
+};
 
 export class RommApi {
   private baseUrl: string = "";
   public sessionToken: string | null = null;
   private csrfToken: string | null = null;
-  private client: AxiosInstance | null = null;
+  private client: HttpClient | null = null;
+  private axiosPromise: Promise<AxiosModule["default"]> = import("axios").then((module) => (module as AxiosModule).default);
 
   constructor(baseUrl: string = "") {
     this.baseUrl = baseUrl.replace(/\/$/, "");
-    this.initClient();
+    void this.initClient();
   }
 
-  private initClient(): void {
+  private async getAxios(): Promise<AxiosModule["default"]> {
+    return this.axiosPromise;
+  }
+
+  private async getClient(): Promise<HttpClient> {
+    if (!this.client) {
+      await this.initClient();
+    }
+    return this.client!;
+  }
+
+  private async initClient(): Promise<void> {
     const headers: Record<string, string> = {};
+    const axios = await this.getAxios();
 
     if (this.sessionToken) headers["Cookie"] = this.sessionToken;
     if (this.csrfToken) headers["X-CSRFToken"] = this.csrfToken;
@@ -59,7 +84,8 @@ export class RommApi {
 
   setBaseUrl(url: string): void {
     this.baseUrl = url.replace(/\/$/, "");
-    this.initClient();
+    this.client = null;
+    void this.initClient();
   }
 
   get isAuthenticated(): boolean {
@@ -81,6 +107,7 @@ export class RommApi {
 
   public async loginWithCredentials(username: string, password: string): Promise<ApiResponse<Boolean | string>> {
     try {
+      const axios = await this.getAxios();
       const auth = Buffer.from(`${username}:${password}`).toString("base64");
 
       // Login request
@@ -108,7 +135,7 @@ export class RommApi {
       }
       this.csrfToken = cookies["romm_csrftoken"] || cookies["csrftoken"];
 
-      this.initClient();
+      await this.initClient();
       return { success: true, data: username };
     } catch (error: any) {
       this.clearAuth();
@@ -130,11 +157,12 @@ export class RommApi {
       }
 
       // Re-initialize client with session
-      this.initClient();
+      await this.initClient();
 
       // Test if session is still valid by making an authenticated request
       // Use /api/me to get current user info (standard endpoint for session validation)
-      const response = await this.client!.get("/api/users/me");
+      const client = await this.getClient();
+      const response = await client.get("/api/users/me");
 
       if (response.status === 200 && response.data) {
         console.log("Session login successful - session is still valid.");
@@ -152,13 +180,15 @@ export class RommApi {
   setOAuthToken(token: string): void {
     // For OAuth, the token is actually the session token
     this.sessionToken = `romm_session=${token}`;
-    this.initClient();
+    this.client = null;
+    void this.initClient();
   }
 
   async testAuthentication(): Promise<ApiResponse<boolean>> {
     try {
       // Test authentication by making an authenticated request
-      const response = await this.client!.get("/api/users/me");
+      const client = await this.getClient();
+      const response = await client.get("/api/users/me");
 
       if (response.status === 200 && response.data) {
         console.log("OAuth authentication successful - session is valid.");
@@ -181,14 +211,16 @@ export class RommApi {
     this.sessionToken = null;
     this.csrfToken = null;
 
-    this.initClient();
+    this.client = null;
+    void this.initClient();
   }
 
   async testConnection(): Promise<ApiResponse<HeartbeatResponse>> {
     try {
+      let client = await this.getClient();
       // Try to get CSRF token from main page
       try {
-        const response = await this.client!.get("");
+        const response = await client.get("");
         const htmlContent = response.data;
 
         // Extract CSRF from HTML
@@ -197,7 +229,8 @@ export class RommApi {
 
         if (csrfMatch?.[1]) {
           this.csrfToken = csrfMatch[1];
-          this.initClient();
+          await this.initClient();
+          client = await this.getClient();
         }
 
         // Extract CSRF from cookies as fallback
@@ -205,13 +238,14 @@ export class RommApi {
         const csrfFromCookie = cookies["romm_csrftoken"] || cookies["csrftoken"];
         if (csrfFromCookie && !this.csrfToken) {
           this.csrfToken = csrfFromCookie;
-          this.initClient();
+          await this.initClient();
+          client = await this.getClient();
         }
       } catch (error) {
         // CSRF token not critical for heartbeat
       }
 
-      const response = await this.client!.get("/api/heartbeat");
+      const response = await client.get("/api/heartbeat");
       if (response.status !== 200) throw new Error(`HTTP ${response.status}`);
 
       // Handle different response formats
@@ -230,7 +264,8 @@ export class RommApi {
   async logout(): Promise<ApiResponse> {
     try {
       if (this.sessionToken) {
-        await this.client!.post("/api/logout");
+        const client = await this.getClient();
+        await client.post("/api/logout");
       }
       this.clearAuth();
       return { success: true };
@@ -243,7 +278,8 @@ export class RommApi {
   private async apiCall<T>(method: "get" | "post", endpoint: string, options: any = {}): Promise<ApiResponse<T>> {
     console.log(`API Call: ${method.toUpperCase()} ${endpoint}`, JSON.stringify(options));
     try {
-      const response = await this.client![method](endpoint, options);
+      const client = await this.getClient();
+      const response = await client[method](endpoint, options);
       return { success: true, data: response.data };
     } catch (error: any) {
       return this.handleApiError(error);
@@ -270,7 +306,7 @@ export class RommApi {
     return this.apiCall("get", `/api/roms/${romId}`);
   }
 
-  async fetchRoms(options: RomOptions & { search?: string; platform_id?: number } = {}): Promise<ApiResponse<RomsResponse>> {
+  async fetchRoms(options: RomOptions & { search?: string; platform_id?: number; platform_ids?: number | string } = {}): Promise<ApiResponse<RomsResponse>> {
     const params: any = {
       limit: options.limit || 15,
       offset: options.offset || 0,
@@ -285,7 +321,8 @@ export class RommApi {
     }
 
     // Add other options
-    if (options.platform_id !== undefined) params.platform_id = options.platform_id;
+    if (options.platform_ids !== undefined) params.platform_ids = options.platform_ids;
+    else if (options.platform_id !== undefined) params.platform_ids = options.platform_id;
     if (options.groupByMetaId !== undefined) params.group_by_meta_id = options.groupByMetaId;
 
     return this.apiCall("get", "/api/roms", { params });
@@ -321,7 +358,7 @@ export class RommApi {
 
   async getRomsByPlatform(platformId: number, options: RomOptions = {}): Promise<ApiResponse<RomsResponse>> {
     return this.fetchRoms({
-      platform_id: platformId,
+      platform_ids: platformId,
       limit: options.limit || 72,
       orderBy: options.orderBy || "name",
       orderDir: options.orderDir || "asc",
@@ -334,13 +371,17 @@ export class RommApi {
     try {
       let totalToDownload = 0;
       const toDownload: Map<number, { endpoint: string; dest_path: string; rom: Rom | LocalRom }> = new Map();
+      await fs.promises.mkdir(path, { recursive: true });
+
+      const romFiles = Array.isArray(rom.files) ? rom.files : [];
       if (rom.has_simple_single_file) {
-        toDownload.set(rom.id, { endpoint: `/api/roms/${rom.id}/content/${encodeURIComponent(rom.fs_name)}`, dest_path: path + "/" + rom.fs_name, rom });
-        totalToDownload += rom.fs_size_bytes;
-      }
-      if (rom.has_multiple_files) {
-        for (let file of rom.files) {
-          toDownload.set(file.id, { endpoint: `/api/roms/${rom.id}/content/${encodeURIComponent(rom.fs_name)}?file_ids=${file.id}`, dest_path: path + "/" + file.file_name, rom });
+        const singleFile = romFiles[0];
+        const fileName = singleFile?.file_name || rom.fs_name;
+        toDownload.set(singleFile?.id || rom.id, { endpoint: `/api/roms/${rom.id}/content/${encodeURIComponent(rom.fs_name)}`, dest_path: `${path}/${fileName}`, rom });
+        totalToDownload += singleFile?.file_size_bytes || rom.fs_size_bytes || 0;
+      } else if (rom.has_multiple_files || rom.has_nested_single_file || romFiles.length > 0) {
+        for (let file of romFiles) {
+          toDownload.set(file.id, { endpoint: `/api/roms/${rom.id}/content/${encodeURIComponent(rom.fs_name)}?file_ids=${file.id}`, dest_path: `${path}/${file.file_name}`, rom });
           totalToDownload += file.file_size_bytes;
         }
       }
@@ -348,16 +389,21 @@ export class RommApi {
       console.log(
         `Downloading ROM: ${rom.id}, File: ${rom.fs_name}, url: ${Array.from(toDownload.values())
           .map((item) => item.endpoint)
-          .join(", ")}`
-      );
+            .join(", ")}`
+        );
 
-      let fileCount = 0;
-      let totalFiles = toDownload.size;
-      for (let [id, { endpoint, dest_path, rom }] of toDownload) {
+        if (toDownload.size === 0) {
+          throw new Error(`No downloadable files found for ROM ${rom.id} (${rom.name || rom.fs_name})`);
+        }
+
+        let fileCount = 0;
+        let totalFiles = toDownload.size;
+        for (let [id, { endpoint, dest_path, rom }] of toDownload) {
         fileCount++;
-        const response = await this.client!.get(endpoint, {
+        const client = await this.getClient();
+        const response = await client.get(endpoint, {
           responseType: "arraybuffer",
-          onDownloadProgress: (progressEvent) => {
+          onDownloadProgress: (progressEvent: any) => {
             if (onProgress && progressEvent.total) {
               const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
               const downloadedMB = (progressEvent.loaded / 1024 / 1024).toFixed(2);
@@ -373,15 +419,21 @@ export class RommApi {
               });
             }
           },
-        });
+          });
+  
+          if (response.status !== 200) {
+            throw new Error(`Failed to download ROM file ${id}: HTTP ${response.status}`);
+          }
 
-        if (response.status == 200) {
           await fs.promises.writeFile(dest_path, Buffer.from(response.data));
+          const stats = await fs.promises.stat(dest_path);
+          if (!stats.isFile() || stats.size === 0) {
+            throw new Error(`Downloaded ROM file ${id} is empty or missing: ${dest_path}`);
+          }
           console.log(`Downloaded ROM file ID: ${id} to ${dest_path}`);
         }
-      }
-
-      return { success: true };
+  
+        return { success: true };
     } catch (error: any) {
       return this.handleApiError(error);
     }
@@ -414,7 +466,8 @@ export class RommApi {
 
       // Refresh CSRF token if needed
       try {
-        const heartbeatResponse = await this.client!.get("/api/heartbeat");
+        const client = await this.getClient();
+        const heartbeatResponse = await client.get("/api/heartbeat");
         const cookies = this.parseCookiesFromHeaders(heartbeatResponse.headers["set-cookie"] || []);
         const freshToken = cookies["romm_csrftoken"] || cookies["csrftoken"];
         if (freshToken) {
@@ -430,7 +483,8 @@ export class RommApi {
       formData.append("saveFile", fileBuffer, { filename: fileName, contentType: "application/x-zip-compressed" });
       if (emulator) formData.append("emulator", emulator);
 
-      const response = await this.client!.post(`/api/saves`, formData, {
+      const client = await this.getClient();
+      const response = await client.post(`/api/saves`, formData, {
         params: { rom_id: romId },
         headers: {
           ...formData.getHeaders(),
@@ -467,7 +521,8 @@ export class RommApi {
       }
 
       console.log(`[ROMM API] Starting download from: ${downloadPath}`);
-      const response = await this.client!.get(downloadPath, { responseType: "arraybuffer" });
+      const client = await this.getClient();
+      const response = await client.get(downloadPath, { responseType: "arraybuffer" });
       console.log(`[ROMM API] Save file download completed:`, {
         status: response.status,
         contentLength: response.data ? response.data.length : "unknown",

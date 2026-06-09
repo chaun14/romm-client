@@ -32,8 +32,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Configuration
     config: {
         setRommUrl: (url) => ipcRenderer.invoke('config:set-romm-url', url),
-        setCredentials: (username, password, saveCredentials = true) =>
-            ipcRenderer.invoke('config:set-credentials', { username, password, saveCredentials }),
+        setCredentials: (username, password) =>
+            ipcRenderer.invoke('config:set-credentials', { username, password }),
         testConnection: () => ipcRenderer.invoke('config:test-connection'),
         logout: () => ipcRenderer.invoke('config:logout'),
         getCurrentUser: () => ipcRenderer.invoke('config:get-current-user'),
@@ -44,7 +44,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
         authenticateWithSavedCredentials: () => ipcRenderer.invoke('config:authenticate-with-saved-credentials'),
         hasSavedSession: () => ipcRenderer.invoke('config:has-saved-session'),
         authenticateWithSavedSession: () => ipcRenderer.invoke('config:authenticate-with-saved-session'),
-        getVersion: () => ipcRenderer.invoke('config:get-version')
+        getVersion: () => ipcRenderer.invoke('config:get-version'),
+        openWorkFolder: () => ipcRenderer.invoke('config:open-work-folder')
     },
 
     // Login completion
@@ -71,6 +72,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
             ipcRenderer.invoke('emulator:configure-emulator', { emulatorKey, emulatorPath }),
         getConfigs: () => ipcRenderer.invoke('emulator:get-configs'),
         saveConfig: (emulatorKey, path) => ipcRenderer.invoke('emulator:saveConfig', { emulatorKey, path }),
+        unregister: (emulatorKey) => ipcRenderer.invoke('emulator:unregister', emulatorKey),
         isPlatformSupported: (platform) => ipcRenderer.invoke('emulator:is-platform-supported', platform),
         getSupportedPlatforms: () => ipcRenderer.invoke('emulator:get-supported-platforms'),
         getSupportedEmulators: () => ipcRenderer.invoke('emulator:get-supported-emulators')
@@ -127,6 +129,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // Open RomM Web Interface
     openRommWebInterface: (romId) => ipcRenderer.invoke('romm:open-web-interface', romId),
+
+    // Authenticated image loading
+    images: {
+        fetchDataUrl: (url) => ipcRenderer.invoke('images:fetch-data-url', url)
+    },
 
     // Updates
     updates: {
@@ -199,6 +206,9 @@ contextBridge.exposeInMainWorld('electronEvents', {
     onUpdateAvailable: (callback) => {
         ipcRenderer.on('update-available', (event, data) => callback(data));
     },
+    onUpdateNotAvailable: (callback) => {
+        ipcRenderer.on('update-not-available', (event, data) => callback(data));
+    },
     onUpdateDownloadProgress: (callback) => {
         ipcRenderer.on('update-download-progress', (event, data) => callback(data));
     },
@@ -210,6 +220,7 @@ contextBridge.exposeInMainWorld('electronEvents', {
     },
     removeUpdateListeners: () => {
         ipcRenderer.removeAllListeners('update-available');
+        ipcRenderer.removeAllListeners('update-not-available');
         ipcRenderer.removeAllListeners('update-download-progress');
         ipcRenderer.removeAllListeners('update-downloaded');
         ipcRenderer.removeAllListeners('update-error');

@@ -1,4 +1,4 @@
-import { Emulator, EmulatorConfig, EnvironmentSetupResult, SaveComparisonResult, SaveSyncResult, SaveChoiceResult } from "./Emulator";
+import { Emulator, EmulatorConfig, EnvironmentSetupResult, SaveComparisonResult, SaveSyncResult, SaveChoiceResult, ProgressCallback } from "./Emulator";
 import { Rom } from "../../types/RommApi";
 import { RommApi } from "../../api/RommApi";
 import { SaveManager } from "../SaveManager";
@@ -680,7 +680,7 @@ export class DolphinEmulator extends Emulator {
     }
   }
 
-  public async handleSaveChoice(romData: any, saveChoice: string, saveManager: SaveManager, rommAPI: RommApi | null, saveId?: number): Promise<SaveChoiceResult> {
+  public async handleSaveChoice(romData: any, saveChoice: string, saveManager: SaveManager, rommAPI: RommApi | null, saveId?: number, onProgress?: ProgressCallback): Promise<SaveChoiceResult> {
     try {
       const { rom, finalRomPath, saveDir } = romData;
 
@@ -772,17 +772,31 @@ export class DolphinEmulator extends Emulator {
       // Launch emulator with custom user directory
       console.log(`[DOLPHIN] Launching Dolphin: ${this.getExecutablePath()} -u "${userDir}" -e "${finalRomPath}"`);
       const launchResult = await this.launch(finalRomPath, userDir);
+      onProgress?.({ step: "launch", percent: 100, message: "Game launched" });
 
       // Monitor process to upload saves when it closes
       if (launchResult.process) {
         let saveUploaded = false; // Prevent duplicate uploads
         launchResult.process.on("exit", async (code) => {
           console.log(`[DOLPHIN] Dolphin closed with code ${code}`);
+          onProgress?.({ step: "save-sync", percent: 60, message: "Game closed, syncing saves..." });
 
           // Sync saves back to ROM directory and upload to RomM (only once)
-          if (rommAPI && !saveUploaded) {
+          if (!saveUploaded) {
             saveUploaded = true;
-            await this.handleSaveSync(rom, saveDir, rommAPI, saveManager);
+            try {
+              if (rommAPI) {
+                onProgress?.({ step: "save-sync", percent: 75, message: "Uploading saves to RomM..." });
+                const syncResult = await this.handleSaveSync(rom, saveDir, rommAPI, saveManager);
+                if (!syncResult.success) {
+                  throw new Error(syncResult.error || "Save sync failed");
+                }
+              }
+              onProgress?.({ step: "complete", percent: 100, message: "Saves synced", complete: true });
+            } catch (syncError: any) {
+              console.warn(`[DOLPHIN] Failed to finish save sync: ${syncError.message}`);
+              onProgress?.({ step: "error", percent: 100, message: syncError.message, complete: true, error: syncError.message });
+            }
           }
         });
       }

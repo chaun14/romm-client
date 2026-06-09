@@ -1,4 +1,4 @@
-import { Emulator, EmulatorConfig, EnvironmentSetupResult, SaveComparisonResult, SaveSyncResult, SaveChoiceResult } from "./Emulator";
+import { Emulator, EmulatorConfig, EnvironmentSetupResult, SaveComparisonResult, SaveSyncResult, SaveChoiceResult, ProgressCallback } from "./Emulator";
 import { Rom } from "../../types/RommApi";
 import { RommApi } from "../../api/RommApi";
 import { SaveManager } from "../SaveManager";
@@ -561,7 +561,7 @@ export class PCSX2Emulator extends Emulator {
     }
   }
 
-  public async handleSaveChoice(romData: any, saveChoice: string, saveManager: SaveManager, rommAPI: RommApi | null, saveId?: number): Promise<SaveChoiceResult> {
+  public async handleSaveChoice(romData: any, saveChoice: string, saveManager: SaveManager, rommAPI: RommApi | null, saveId?: number, onProgress?: ProgressCallback): Promise<SaveChoiceResult> {
     try {
       const { rom, finalRomPath, saveDir } = romData;
 
@@ -674,6 +674,7 @@ export class PCSX2Emulator extends Emulator {
 
       // Launch emulator
       console.log(`Launching emulator: ${this.getExecutablePath()} ${preparedArgs.join(" ")}`);
+      onProgress?.({ step: "launch", percent: 100, message: "Game launched" });
       const emulatorProcess = spawn(this.getExecutablePath()!, preparedArgs, {
         detached: false,
         stdio: "ignore",
@@ -687,21 +688,29 @@ export class PCSX2Emulator extends Emulator {
       let saveUploaded = false; // Prevent duplicate uploads
       emulatorProcess.on("exit", async (code) => {
         console.log(`Emulator closed with code ${code}`);
+        onProgress?.({ step: "save-sync", percent: 60, message: "Game closed, syncing saves..." });
         if (!saveUploaded) {
           saveUploaded = true;
-          // Upload saves back to RomM
-          if (rommAPI) {
-            await this.handleSaveSync(rom, saveDir, rommAPI, saveManager);
-          }
-
-          // Clean up session directory after save sync completes
           try {
+            // Upload saves back to RomM
+            if (rommAPI) {
+              onProgress?.({ step: "save-sync", percent: 75, message: "Uploading saves to RomM..." });
+              const syncResult = await this.handleSaveSync(rom, saveDir, rommAPI, saveManager);
+              if (!syncResult.success) {
+                throw new Error(syncResult.error || "Save sync failed");
+              }
+            }
+
+            // Clean up session directory after save sync completes
+            onProgress?.({ step: "cleanup", percent: 95, message: "Cleaning up session..." });
             console.log(`[PCSX2] Cleaning up session directory: ${saveDir}`);
             await this.deleteDirectoryRecursive(saveDir);
             console.log(`[PCSX2] Session directory cleaned up successfully`);
-          } catch (cleanupError: any) {
-            console.warn(`[PCSX2] Failed to clean up session directory: ${cleanupError.message}`);
-            // Don't fail if cleanup fails, saves are already backed up
+
+            onProgress?.({ step: "complete", percent: 100, message: "Saves synced", complete: true });
+          } catch (syncError: any) {
+            console.warn(`[PCSX2] Failed to finish save sync: ${syncError.message}`);
+            onProgress?.({ step: "error", percent: 100, message: syncError.message, complete: true, error: syncError.message });
           }
         }
       });

@@ -1,9 +1,20 @@
-import { app, ipcMain, BrowserWindow } from "electron";
+import { app, ipcMain, BrowserWindow, shell } from "electron";
+import fs from "fs";
 import path from "path";
 import { RommClient } from "../RomMClient";
 import { autoUpdater } from "electron-updater";
 import { RommApi } from "../api/RommApi";
 import { EmulatorManager } from "./EmulatorManager";
+
+type AxiosStatic = {
+  get: (url: string, options?: any) => Promise<any>;
+};
+
+const axiosPromise: Promise<AxiosStatic> = import("axios").then((module) => (module as { default: AxiosStatic }).default);
+
+function getAxios(): Promise<AxiosStatic> {
+  return axiosPromise;
+}
 
 export class IPCManager {
   private rommClient: RommClient;
@@ -18,6 +29,18 @@ export class IPCManager {
     // load config related IPC handlers
     ipcMain.handle("config:get-version", async () => {
       return { success: true, data: app.getVersion() };
+    });
+
+    ipcMain.handle("config:open-work-folder", async () => {
+      const workFolder = path.join(process.env.APPDATA || process.env.HOME || app.getPath("userData"), "romm-client");
+      await fs.promises.mkdir(workFolder, { recursive: true });
+      const error = await shell.openPath(workFolder);
+
+      if (error) {
+        return { success: false, error };
+      }
+
+      return { success: true, data: workFolder };
     });
 
     // Console logging from renderer process
@@ -50,10 +73,11 @@ export class IPCManager {
 
       // Update RommClient's settings reference
       this.rommClient.settings = this.rommClient.appSettingsManager.getSettings();
+      await this.rommClient.setupFolders();
 
       // Create RommApi instance if it doesn't exist
       if (!this.rommClient.rommApi) {
-        const { RommApi } = await import("../api/RommApi");
+        const { RommApi } = await import("../api/RommApi.js");
         this.rommClient.rommApi = new RommApi(url);
       } else {
         // Update existing API base URL
@@ -63,15 +87,7 @@ export class IPCManager {
       return { success: true };
     });
 
-    ipcMain.handle("config:set-credentials", async (event, { username, password, saveCredentials = true }) => {
-      // Update settings using AppSettingsManager
-      this.rommClient.appSettingsManager.setSetting("username", saveCredentials ? username : null);
-      this.rommClient.appSettingsManager.setSetting("password", saveCredentials ? password : null);
-      await this.rommClient.appSettingsManager.saveSettings();
-
-      // Update RommClient's settings reference
-      this.rommClient.settings = this.rommClient.appSettingsManager.getSettings();
-
+    ipcMain.handle("config:set-credentials", async (event, { username, password }) => {
       // Ensure RommApi exists
       if (!this.rommClient.rommApi && this.rommClient.settings.baseUrl) {
         this.rommClient.rommApi = new RommApi(this.rommClient.settings.baseUrl);
@@ -86,12 +102,15 @@ export class IPCManager {
 
       // If login successful, save session tokens
       if (loginResult.success) {
+        this.rommClient.appSettingsManager.setSetting("username", null);
+        this.rommClient.appSettingsManager.setSetting("password", null);
         this.rommClient.appSettingsManager.setSetting("sessionToken", this.rommClient.rommApi.sessionTokenValue);
         this.rommClient.appSettingsManager.setSetting("csrfToken", this.rommClient.rommApi.csrfTokenValue);
         await this.rommClient.appSettingsManager.saveSettings();
 
         // Update RommClient's settings reference again
         this.rommClient.settings = this.rommClient.appSettingsManager.getSettings();
+        await this.rommClient.initializeAuthenticatedData();
       }
 
       return loginResult;
@@ -102,7 +121,7 @@ export class IPCManager {
       let apiToTest = this.rommClient.rommApi;
 
       if (!apiToTest && this.rommClient.settings.baseUrl) {
-        const { RommApi } = await import("../api/RommApi");
+        const { RommApi } = await import("../api/RommApi.js");
         apiToTest = new RommApi(this.rommClient.settings.baseUrl);
       }
 
@@ -129,10 +148,6 @@ export class IPCManager {
       // Update RommClient's settings reference
       this.rommClient.settings = this.rommClient.appSettingsManager.getSettings();
 
-      // Reset RommClient to initial state instead of just loading login page
-      // This ensures proper cleanup and initialization like on app startup
-      await this.rommClient.initWindow();
-
       return { success: true };
     });
 
@@ -151,13 +166,10 @@ export class IPCManager {
     });
 
     ipcMain.handle("config:has-saved-credentials", async () => {
-      return !!(this.rommClient.settings.username && this.rommClient.settings.password);
+      return false;
     });
     ipcMain.handle("config:authenticate-with-saved-credentials", async () => {
-      if (!this.rommClient.rommApi) {
-        return { success: false, error: "RomM API not initialized" };
-      }
-      return this.rommClient.rommApi.loginWithCredentials(this.rommClient.settings.username!, this.rommClient.settings.password!);
+      return { success: false, error: "Saved passwords are no longer supported. Please log in again to create a session." };
     });
 
     ipcMain.handle("config:has-saved-session", async () => {
@@ -165,10 +177,17 @@ export class IPCManager {
     });
 
     ipcMain.handle("config:authenticate-with-saved-session", async () => {
+      if (!this.rommClient.rommApi && this.rommClient.settings.baseUrl) {
+        this.rommClient.rommApi = new RommApi(this.rommClient.settings.baseUrl);
+      }
       if (!this.rommClient.rommApi) {
         return { success: false, error: "RomM API not initialized" };
       }
-      return this.rommClient.rommApi.loginWithSession(this.rommClient.settings.sessionToken!, this.rommClient.settings.csrfToken || undefined);
+      const result = await this.rommClient.rommApi.loginWithSession(this.rommClient.settings.sessionToken!, this.rommClient.settings.csrfToken || undefined);
+      if (result.success) {
+        await this.rommClient.initializeAuthenticatedData();
+      }
+      return result;
     });
 
     ipcMain.handle("config:start-oauth", async (event, serverUrl) => {
@@ -241,6 +260,7 @@ export class IPCManager {
 
                     // Update RommClient's settings reference
                     this.rommClient.settings = this.rommClient.appSettingsManager.getSettings();
+                    await this.rommClient.initializeAuthenticatedData();
 
                     console.log("[IPC] OAuth authentication successful");
                     resolve({ success: true });
@@ -293,7 +313,10 @@ export class IPCManager {
 
     ipcMain.handle("roms:fetch-local", async () => {
       console.log("[IPC]" + `Fetching local ROMs`);
-      if (this.rommClient.rommApi) return this.rommClient.romManager?.getLocalRoms();
+      if (this.rommClient.rommApi && this.rommClient.romManager) {
+        await this.rommClient.romManager.loadLocalRoms();
+        return this.rommClient.romManager.getLocalRoms();
+      }
       else throw new Error("RomM API is not initialized");
     });
 
@@ -403,6 +426,11 @@ export class IPCManager {
       return { success: true };
     });
 
+    ipcMain.handle("emulator:unregister", async (event, emulatorKey) => {
+      console.log("[IPC]" + `Unregistering emulator: ${emulatorKey}`);
+      return this.emulatorManager.unregisterConfiguration(emulatorKey);
+    });
+
     ipcMain.handle("emulator:configure-emulator", async (event, { emulatorKey, emulatorPath }) => {
       console.log("[IPC]" + `Configuring emulator: ${emulatorKey} at path: ${emulatorPath}`);
       return this.emulatorManager.configureEmulatorInConfigMode(emulatorKey, emulatorPath);
@@ -440,6 +468,64 @@ export class IPCManager {
       console.log("[IPC]" + `Fetching stats`);
       if (this.rommClient.rommApi) return this.rommClient.rommApi.fetchStats();
       else throw new Error("RomM API is not initialized");
+    });
+
+    ipcMain.handle("images:fetch-data-url", async (event, imageUrl) => {
+      try {
+        if (!imageUrl || typeof imageUrl !== "string") {
+          return { success: false, error: "Image URL is required" };
+        }
+
+        const baseUrl = this.rommClient.rommApi?.getBaseUrl() || this.rommClient.settings.baseUrl;
+        if (!baseUrl) {
+          return { success: false, error: "RomM base URL not configured" };
+        }
+
+        const absoluteUrl = new URL(imageUrl, baseUrl).toString();
+        const baseOrigin = new URL(baseUrl).origin;
+        const imageOrigin = new URL(absoluteUrl).origin;
+        const headers = imageOrigin === baseOrigin ? this.rommClient.rommApi?.getAuthHeaders() || {} : {};
+
+        const axios = await getAxios();
+        const response = await axios.get(absoluteUrl, {
+          responseType: "arraybuffer",
+          headers,
+        });
+
+        const contentType = response.headers["content-type"] || "image/jpeg";
+        const data = Buffer.from(response.data).toString("base64");
+
+        return {
+          success: true,
+          data: `data:${contentType};base64,${data}`,
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    });
+
+    ipcMain.handle("rom:check-cache", async (event, rom) => {
+      try {
+        if (this.rommClient.romManager && this.rommClient.romManager.getLocalRoms().length === 0) {
+          await this.rommClient.romManager.loadLocalRoms();
+        }
+        const localRom = this.rommClient.romManager?.getLocalRomById(rom.id);
+        return {
+          success: true,
+          data: Boolean(localRom),
+          cached: Boolean(localRom),
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          data: false,
+          cached: false,
+          error: error.message,
+        };
+      }
     });
     /*
     // Cache and Save Status
@@ -574,11 +660,19 @@ export class IPCManager {
     ipcMain.handle("roms:launch", async (event, { rom, emulatorPath }) => {
       console.log("[IPC]" + `Launching ROM with saves flow: ${rom.name} (ID: ${rom.id})`);
 
+      if (emulatorPath === "rommIntegrated") {
+        console.log("[IPC] Launch requested with integrated emulator");
+        return await this.launchWithIntegratedEmulator(rom);
+      }
+
       // Create progress callback to send updates to renderer
       const onProgress = (progress: any) => {
         console.log("[IPC]" + `Launch progress for ROM: ${rom.name} (ID: ${rom.id}): ${JSON.stringify(progress)}`);
         console.log("[IPC] Sending rom:download-progress event to frontend");
         event.sender.send("rom:download-progress", progress);
+        if (progress?.complete) {
+          event.sender.send("rom:download-complete", { rom, progress });
+        }
       };
 
       // Create save choice callback
@@ -665,6 +759,10 @@ export class IPCManager {
     // IPC handlers for updates
     ipcMain.handle("update:check", async () => {
       try {
+        if (!app.isPackaged) {
+          return { success: true, data: { updateAvailable: false, devMode: true, currentVersion: app.getVersion() } };
+        }
+
         const result = await autoUpdater.checkForUpdates();
         return { success: true, data: result };
       } catch (error: any) {
@@ -674,6 +772,10 @@ export class IPCManager {
 
     ipcMain.handle("update:download", async () => {
       try {
+        if (!app.isPackaged) {
+          return { success: false, error: "Updates are only available in packaged builds" };
+        }
+
         await autoUpdater.downloadUpdate();
         return { success: true };
       } catch (error: any) {
@@ -682,7 +784,12 @@ export class IPCManager {
     });
 
     ipcMain.handle("update:install", () => {
+      if (!app.isPackaged) {
+        return { success: false, error: "Updates are only available in packaged builds" };
+      }
+
       autoUpdater.quitAndInstall(false, true);
+      return { success: true };
     });
   }
 

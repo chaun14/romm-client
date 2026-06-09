@@ -1,6 +1,5 @@
 import fs from "fs";
 import path from "path";
-import AdmZip from "adm-zip";
 import unzipper from "unzipper";
 
 import { RommClient } from "../RomMClient";
@@ -100,7 +99,14 @@ export class RomManager {
     for (const dirent of platformFolders) {
       if (dirent.isDirectory()) {
         const platformPath = path.join(romFolder, dirent.name);
-        const romDirs = await fs.promises.readdir(platformPath, { withFileTypes: true });
+        let romDirs: fs.Dirent[];
+        try {
+          romDirs = await fs.promises.readdir(platformPath, { withFileTypes: true });
+        } catch (error: any) {
+          console.warn(`[ROM MANAGER] Skipping platform folder ${platformPath}: ${error.code || error.message}`);
+          continue;
+        }
+
         for (const romDirent of romDirs) {
           if (romDirent.isDirectory() && romDirent.name.startsWith("rom_")) {
             const romId = romDirent.name.replace("rom_", "");
@@ -121,7 +127,19 @@ export class RomManager {
 
             if (rom) {
               const romPath = path.join(platformPath, romDirent.name);
-              const files = await fs.promises.readdir(romPath);
+              let files: string[];
+              try {
+                files = await fs.promises.readdir(romPath);
+              } catch (error: any) {
+                console.warn(`[ROM MANAGER] Skipping local ROM folder ${romPath}: ${error.code || error.message}`);
+                continue;
+              }
+
+              if (files.length === 0) {
+                console.warn(`[ROM MANAGER] Skipping empty local ROM folder ${romPath}`);
+                continue;
+              }
+
               const localRom: LocalRom = {
                 ...rom,
                 localPath: romPath,
@@ -140,10 +158,50 @@ export class RomManager {
     // Save ROMs to storage (e.g., file system, database)
   }
 
+  private async ensureDirectory(dirPath: string, label: string): Promise<void> {
+    try {
+      const stats = await fs.promises.stat(dirPath);
+      if (!stats.isDirectory()) {
+        throw new Error(`${label} path exists but is not a directory: ${dirPath}`);
+      }
+      return;
+    } catch (error: any) {
+      if (error.code !== "ENOENT") {
+        throw new Error(`Cannot access ${label} directory (${error.code || error.message}): ${dirPath}`);
+      }
+    }
+
+    try {
+      await fs.promises.mkdir(dirPath, { recursive: true });
+    } catch (error: any) {
+      if (error.code === "EEXIST") {
+        const stats = await fs.promises.stat(dirPath);
+        if (stats.isDirectory()) return;
+      }
+
+      throw new Error(`Cannot create ${label} directory (${error.code || error.message}): ${dirPath}`);
+    }
+  }
+
   private async checkRomIntegrity(rom: LocalRom): Promise<boolean> {
     // Check integrity for all files in the localPath folder
     let ignoredExtensions = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".txt", ".nfo", ".md", ".7z", ".rar", ".pdf"];
     if (!rom.localFiles || rom.localFiles.length === 0) return false;
+
+    const existingFiles = rom.localFiles.filter((filePath) => {
+      try {
+        return fs.existsSync(filePath) && fs.statSync(filePath).isFile();
+      } catch {
+        return false;
+      }
+    });
+
+    if (existingFiles.length === 0) {
+      console.log(`[ROM INTEGRITY] Local ROM folder has no files for ${rom.name} (ID: ${rom.id})`);
+      return false;
+    }
+
+    rom.localFiles = existingFiles;
 
     // Check if there's a zip file in the ROM's files list
     const zipFile = Array.isArray(rom.files) ? rom.files.find((f) => f.file_name.endsWith(".zip")) : undefined;
@@ -241,13 +299,10 @@ export class RomManager {
       let romFolder = this.rommClient.getRomFolder();
       if (!romFolder) throw new Error("ROM folder not set");
       let romEmulatorSlug = rom.platform_slug || "unknown";
-      let romEmulatorPath = path.join(romFolder, romEmulatorSlug, "rom_" + rom.id);
-      if (!fs.existsSync(romEmulatorPath)) {
-        fs.mkdirSync(romEmulatorPath, { recursive: true });
-      }
-      if (!fs.existsSync(path.join(romFolder, romEmulatorSlug))) {
-        fs.mkdirSync(path.join(romFolder, romEmulatorSlug), { recursive: true });
-      }
+      const platformRomPath = path.join(romFolder, romEmulatorSlug);
+      const romEmulatorPath = path.join(platformRomPath, "rom_" + rom.id);
+      await this.ensureDirectory(platformRomPath, "platform ROM");
+      await this.ensureDirectory(romEmulatorPath, "ROM");
       if (!this.rommClient.rommApi) throw new Error("RomM API is not initialized");
       onProgress({ step: "download", percent: 0, downloaded: "0.00", total: "0.00", message: "Starting download..." });
       let dlres = await this.rommClient.rommApi.downloadRom(rom, romEmulatorPath, onProgress);
@@ -255,6 +310,9 @@ export class RomManager {
       onProgress({ step: "download", percent: 100, downloaded: "100.00", total: "100.00", message: "Download complete" });
       // Add the folder and files to localRoms
       const files = await fs.promises.readdir(romEmulatorPath);
+      if (files.length === 0) {
+        throw new Error(`ROM download completed but no files were written for ${rom.name}`);
+      }
       localRom = this.localRoms.find((r) => r.id === rom.id);
       if (!localRom) {
         (rom as LocalRom).localPath = romEmulatorPath;
@@ -271,6 +329,9 @@ export class RomManager {
       for (const zipFile of zipFiles) {
         const zipFilePath = path.join(localRom!.localPath, zipFile.file_name);
         console.log("[LAUNCH]" + `Extracting zip file (streaming): ${zipFilePath}`);
+        if (!fs.existsSync(zipFilePath)) {
+          throw new Error(`Downloaded ZIP file is missing: ${zipFile.file_name}`);
+        }
 
         // Use streaming extraction for large files
         try {
@@ -372,7 +433,9 @@ export class RomManager {
       }
 
       // Step 1: Ensure ROM is available (download if needed) - only for external emulators
-      const launchResult = await this.launchRom(rom, onProgress, () => {}, onProgress);
+      const launchResult = await this.launchRom(rom, onProgress, () => { }, () => {
+        onProgress({ step: "download", percent: 100, downloaded: "100.00", total: "100.00", message: "ROM ready", complete: true });
+      });
       if (!launchResult.success) {
         throw new Error("Failed to prepare ROM for launch");
       }
@@ -476,6 +539,18 @@ export class RomManager {
           });
           selectedSaveOption = choiceResult.choice || "local";
           selectedSaveId = choiceResult.saveId;
+
+          if (selectedSaveOption === "cancel") {
+            console.log("[LAUNCH FLOW] Launch cancelled during save selection");
+            try {
+              if (fs.existsSync(tempSaveDir)) {
+                fs.rmSync(tempSaveDir, { recursive: true, force: true });
+              }
+            } catch (cleanupError: any) {
+              console.warn(`[LAUNCH FLOW] Failed to clean up cancelled session directory: ${cleanupError.message}`);
+            }
+            throw new Error("Launch cancelled");
+          }
         }
       }
 
@@ -499,7 +574,7 @@ export class RomManager {
       if (selectedSaveOption === "cloud" && selectedSaveId) {
         // For cloud saves, use handleSaveChoice to download and launch
         console.log("[LAUNCH FLOW] Handling cloud save choice for save ID:", selectedSaveId);
-        finalLaunchResult = await emulator.handleSaveChoice(romData, "cloud", saveManager, this.rommClient.rommApi, selectedSaveId);
+        finalLaunchResult = await emulator.handleSaveChoice(romData, "cloud", saveManager, this.rommClient.rommApi, selectedSaveId, onProgress);
         if (!finalLaunchResult.success) {
           throw new Error(`Failed to handle cloud save choice: ${finalLaunchResult.error}`);
         }
@@ -507,7 +582,7 @@ export class RomManager {
       } else if (selectedSaveOption === "local" && saveData.hasLocal) {
         // For local saves, use handleSaveChoice to prepare and launch
         console.log("[LAUNCH FLOW] Handling local save choice");
-        finalLaunchResult = await emulator.handleSaveChoice(romData, "local", saveManager, this.rommClient.rommApi);
+        finalLaunchResult = await emulator.handleSaveChoice(romData, "local", saveManager, this.rommClient.rommApi, undefined, onProgress);
         if (!finalLaunchResult.success) {
           throw new Error(`Failed to handle local save choice: ${finalLaunchResult.error}`);
         }
@@ -515,7 +590,7 @@ export class RomManager {
       } else {
         // For no saves, use handleSaveChoice with "none"
         console.log("[LAUNCH FLOW] Handling fresh start (no saves)");
-        finalLaunchResult = await emulator.handleSaveChoice(romData, "none", saveManager, this.rommClient.rommApi);
+        finalLaunchResult = await emulator.handleSaveChoice(romData, "none", saveManager, this.rommClient.rommApi, undefined, onProgress);
         if (!finalLaunchResult.success) {
           throw new Error(`Failed to handle fresh start: ${finalLaunchResult.error}`);
         }

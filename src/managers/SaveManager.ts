@@ -11,6 +11,9 @@ export interface SaveData {
   hasCloud: boolean;
   localSaveDir: string;
   cloudSaves: any[];
+  localSaveDate?: string | null;
+  cloudSaveDate?: string | null;
+  lastSaveDate?: string | null;
 }
 
 export class SaveManager {
@@ -97,6 +100,46 @@ export class SaveManager {
   }
 
   /**
+   * Get the most recent modification date from local save files.
+   */
+  async getLocalSaveDate(rom: Rom): Promise<string | null> {
+    try {
+      const saveDir = this.getLocalSaveDir(rom);
+      if (!fs.existsSync(saveDir)) {
+        return null;
+      }
+
+      const files = await fsPromises.readdir(saveDir, { recursive: true });
+      let latestTime = 0;
+
+      for (const file of files) {
+        const filePath = path.join(saveDir, file.toString());
+        const stats = fs.statSync(filePath);
+        if (stats.isFile()) {
+          latestTime = Math.max(latestTime, stats.mtime.getTime());
+        }
+      }
+
+      return latestTime > 0 ? new Date(latestTime).toISOString() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private getLatestCloudSaveDate(cloudSaves: any[]): string | null {
+    let latestTime = 0;
+
+    for (const save of cloudSaves) {
+      const timestamp = Date.parse(save.updated_at || save.created_at || "");
+      if (!Number.isNaN(timestamp)) {
+        latestTime = Math.max(latestTime, timestamp);
+      }
+    }
+
+    return latestTime > 0 ? new Date(latestTime).toISOString() : null;
+  }
+
+  /**
    * Check all saves (local and cloud) for a ROM
    * Does NOT create the local save directory if it doesn't exist
    */
@@ -107,7 +150,10 @@ export class SaveManager {
       console.log(`[SAVE MANAGER] Local save directory: ${localSaveDir}`);
 
       console.log(`[SAVE MANAGER] Checking local, cloud, and getting cloud saves...`);
-      const [hasLocal, hasCloud, cloudSaves] = await Promise.all([this.hasLocalSaves(rom), this.hasCloudSaves(rom), this.getCloudSaves(rom)]);
+      const [hasLocal, hasCloud, cloudSaves, localSaveDate] = await Promise.all([this.hasLocalSaves(rom), this.hasCloudSaves(rom), this.getCloudSaves(rom), this.getLocalSaveDate(rom)]);
+      const cloudSaveDate = this.getLatestCloudSaveDate(cloudSaves);
+      const lastSaveTime = Math.max(Date.parse(localSaveDate || "") || 0, Date.parse(cloudSaveDate || "") || 0);
+      const lastSaveDate = lastSaveTime > 0 ? new Date(lastSaveTime).toISOString() : null;
 
       /*
       console.log(`[SAVE MANAGER] Save check results for ROM ${rom.id}:`, {
@@ -123,6 +169,9 @@ export class SaveManager {
         hasCloud,
         localSaveDir,
         cloudSaves,
+        localSaveDate,
+        cloudSaveDate,
+        lastSaveDate,
       };
     } catch (error: any) {
       console.error(`[SAVE MANAGER] Error checking saves for ROM ${rom.id}:`, error.message);
@@ -132,6 +181,9 @@ export class SaveManager {
         hasCloud: false,
         localSaveDir: "",
         cloudSaves: [],
+        localSaveDate: null,
+        cloudSaveDate: null,
+        lastSaveDate: null,
         error: error.message,
       };
     }

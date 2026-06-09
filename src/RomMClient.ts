@@ -100,107 +100,13 @@ export class RommClient extends BrowserWindow {
       }
     }
 
-    // load loading page, but remove the ability to go back
-    this.loadFile(path.join(__dirname, "renderer/loading.html"));
+    this.loadFile(path.join(__dirname, "renderer/index.html"));
 
     // Show window when ready
     this.once("ready-to-show", async () => {
       this.show();
 
-      // Initialize RomM API if baseUrl is configured
-      console.log("Initializing RomM API with baseUrl:", this.settings.baseUrl);
-      let isAuthenticated = false;
-
-      if (this.settings.baseUrl) {
-        this.rommApi = new RommApi(this.settings.baseUrl);
-
-        // check if the api is up and working
-        console.log("Checking RomM API connection heartbeat...");
-        let heartbeat = await this.rommApi.testConnection();
-
-        if (!heartbeat || !heartbeat.success) {
-          console.error("RomM API is not responding");
-
-          await this.webContents.send("init-status", { step: "url", status: "error", message: "RomM is not responding" });
-          await this.sleep(1000);
-
-          return this.loadFile(path.join(__dirname, "renderer/login.html"));
-        } else {
-          console.log("RomM API is responding and running version " + heartbeat.data?.SYSTEM.VERSION);
-          this.webContents.send("init-status", { step: "url", status: "success", message: "RomM version " + heartbeat.data?.SYSTEM.VERSION + " found" });
-        }
-        await this.sleep(1000);
-
-        // if the hearbeat returns that oidc is enabled, we will skip user/pass login
-        if (this.settings.username && this.settings.password && !heartbeat.data?.OIDC.ENABLED) {
-          console.log("Logging in with saved credentials");
-          let res = await this.rommApi.loginWithCredentials(this.settings.username, this.settings.password);
-          isAuthenticated = res.success;
-        } else if (this.settings.sessionToken) {
-          console.log("Logging in with saved session");
-          let res = await this.rommApi.loginWithSession(this.settings.sessionToken);
-          isAuthenticated = res.success;
-        }
-      }
-
-      if (isAuthenticated) {
-        this.webContents.send("init-status", { step: "auth", status: "success", message: "Logged in successfully" });
-
-        console.log("User is authenticated");
-
-        await this.sleep(1000);
-
-        // fetch all the roms from remote
-        if (this.romManager) {
-          // loading hundreds of thousands of roms might take a while
-          // so we're gonna cache them only if there is a reasonable amount
-          if (!this.rommApi) return;
-          let stats = await this.rommApi.fetchStats();
-
-          let remoteRomCount = stats.success ? stats.data!.ROMS : 0;
-
-          if (remoteRomCount < 1000) {
-            let romCount = await this.romManager.loadRemoteRoms();
-            console.log(`Fetched ${romCount} ROMs from remote`);
-
-            this.webContents.send("init-status", { step: "cache", status: "success", message: `Fetched ${romCount} ROMs successfully` });
-          } else {
-            this.romManager.noCacheMode = true;
-            this.webContents.send("init-status", { step: "cache", status: "warning", message: `Too many roms for caching: (${remoteRomCount})` });
-          }
-
-          await this.sleep(1000);
-
-          let localRomCount = await this.romManager.loadLocalRoms();
-          console.log(`Fetched ${localRomCount} local ROMs successfully`);
-
-          this.webContents.send("init-status", { step: "roms", status: "success", message: `Fetched ${localRomCount} local ROMs successfully` });
-        } else {
-          this.webContents.send("init-status", { step: "cache", status: "error", message: "Failed to fetch ROMs" });
-          this.webContents.send("init-status", { step: "roms", status: "error", message: "Failed to fetch ROMs" });
-        }
-
-        await this.sleep(1000);
-        // User is authenticated, proceed to main app
-
-        if (!process.argv.includes("--dev")) {
-          setTimeout(() => {
-            console.log("Checking for updates now...");
-            autoUpdater.checkForUpdates();
-          }, 1000); // Check 1 second after main page is loaded
-        }
-
-        this.loadFile(path.join(__dirname, "renderer/index.html"));
-      } else {
-        this.webContents.send("init-status", { step: "auth", status: "error", message: "Login failed" });
-        await this.sleep(1000);
-
-        // User not authenticated, show login page
-        this.loadFile(path.join(__dirname, "renderer/login.html"));
-
-        // Setup login completion handler
-        this.setupLoginHandler();
-      }
+      await this.authenticateSavedSession();
 
       // Open DevTools in development mode
       if (process.argv.includes("--dev")) {
@@ -231,6 +137,9 @@ export class RommClient extends BrowserWindow {
 
     autoUpdater.on("update-not-available", (info: UpdateInfo) => {
       console.log("[AUTO-UPDATER] No updates available");
+      this.webContents.send("update-not-available", {
+        version: info.version,
+      });
     });
 
     autoUpdater.on("download-progress", (progressObj: ProgressInfo) => {
@@ -254,6 +163,49 @@ export class RommClient extends BrowserWindow {
         message: error.message,
       });
     });
+  }
+
+  private async authenticateSavedSession(): Promise<boolean> {
+    if (!this.settings.baseUrl || !this.settings.sessionToken) {
+      return false;
+    }
+
+    try {
+      this.rommApi = new RommApi(this.settings.baseUrl);
+      console.log("Logging in with saved session");
+      const result = await this.rommApi.loginWithSession(this.settings.sessionToken, this.settings.csrfToken || undefined);
+
+      if (!result.success) {
+        this.appSettingsManager.setSetting("sessionToken", null);
+        this.appSettingsManager.setSetting("csrfToken", null);
+        this.settings = this.appSettingsManager.getSettings();
+        return false;
+      }
+
+      await this.initializeAuthenticatedData();
+      return true;
+    } catch (error: any) {
+      console.warn("Saved session authentication failed:", error.message);
+      return false;
+    }
+  }
+
+  public async initializeAuthenticatedData(): Promise<void> {
+    if (!this.rommApi || !this.romManager) return;
+
+    const stats = await this.rommApi.fetchStats();
+    const remoteRomCount = stats.success ? stats.data!.ROMS : 0;
+
+    if (remoteRomCount < 1000) {
+      const romCount = await this.romManager.loadRemoteRoms();
+      console.log(`Fetched ${romCount} ROMs from remote`);
+    } else {
+      this.romManager.noCacheMode = true;
+      console.log(`Too many ROMs for caching: ${remoteRomCount}`);
+    }
+
+    const localRomCount = await this.romManager.loadLocalRoms();
+    console.log(`Fetched ${localRomCount} local ROMs successfully`);
   }
 
   public setRommApi(rommApi: RommApi) {
@@ -352,9 +304,12 @@ export class RommClient extends BrowserWindow {
     // for better multi instance management, we use separate folders per instance by adding a suffix based on the domain from the baseUrl
     let instanceSuffix = "";
     if (this.settings.baseUrl) {
-      const baseUrl = this.settings.baseUrl;
-      const urlObj = new URL(baseUrl);
-      instanceSuffix = `_${urlObj.hostname}`;
+      try {
+        const urlObj = new URL(this.settings.baseUrl);
+        instanceSuffix = `_${urlObj.hostname}`;
+      } catch {
+        instanceSuffix = "";
+      }
     }
 
     // Create cache directory for ROMs (use emulator name for better organization)
