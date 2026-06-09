@@ -68,16 +68,22 @@ export function RomGrid({
                   : "border-line hover:border-brand",
             )}
           >
+            <button
+              type="button"
+              className="absolute inset-0 z-0 rounded-md text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-ink"
+              onClick={() => onOpenRom(rom)}
+              aria-label={`Open details for ${rom.name || rom.fs_name || "ROM"}`}
+            />
             {rom.isCached || rom.hasSaves ? (
               <div
                 className={classNames(
-                  "absolute inset-x-0 top-0 h-1",
+                  "pointer-events-none absolute inset-x-0 top-0 z-10 h-1",
                   rom.isCached && rom.hasSaves ? "bg-gradient-to-r from-emerald-400 to-brand" : rom.isCached ? "bg-emerald-400" : "bg-brand",
                 )}
               />
             ) : null}
             {rom.isCached || rom.hasSaves ? (
-              <div className="absolute right-5 top-5 z-10 flex gap-1.5">
+              <div className="pointer-events-none absolute right-5 top-5 z-10 flex gap-1.5">
                 {rom.isCached ? (
                   <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/20 bg-emerald-500 text-white shadow-lg backdrop-blur" title="Installed locally">
                     <HardDrive className="h-3.5 w-3.5" />
@@ -90,18 +96,23 @@ export function RomGrid({
                 ) : null}
               </div>
             ) : null}
-            <button className="aspect-[3/4] overflow-hidden rounded-md bg-ink" onClick={() => onOpenRom(rom)}>
+            <div className="pointer-events-none relative z-10 aspect-[3/4] overflow-hidden rounded-md bg-ink">
               {cover ? <RemoteImage src={cover} alt={rom.name || "ROM cover"} className="h-full w-full object-cover transition group-hover:scale-105" fallbackClassName="m-auto mt-24 h-12 w-12 text-slate-600" /> : <Gamepad2 className="m-auto mt-24 h-12 w-12 text-slate-600" />}
-            </button>
-            <div className="mt-3 min-w-0 flex-1">
+            </div>
+            <div className="pointer-events-none relative z-10 mt-3 min-w-0 flex-1">
               <div className="line-clamp-2 text-sm font-semibold leading-5">{rom.name || rom.fs_name}</div>
               <div className="mt-1 truncate text-xs text-slate-400">{romPlatform(rom)}</div>
               <div className="mt-1 text-xs text-slate-500">{formatSize(romSize(rom))}</div>
             </div>
-            <div className="mt-3 flex items-center gap-2">
+            <div className="pointer-events-none relative z-10 mt-3 flex items-center gap-2">
               {rom.isCached ? <Badge icon={<HardDrive />} label="Local" tone="green" /> : null}
               {rom.hasSaves ? <Badge icon={<Save />} label="Save" tone="blue" /> : null}
-              <button className="ml-auto rounded-md border border-line p-2 text-slate-300 hover:border-brand hover:text-white" onClick={() => onOpenInRomm(rom)}>
+              <button
+                type="button"
+                className="pointer-events-auto ml-auto rounded-md border border-line p-2 text-slate-300 hover:border-brand hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-panel"
+                onClick={() => onOpenInRomm(rom)}
+                aria-label={`Open ${rom.name || rom.fs_name || "ROM"} in RomM`}
+              >
                 <ExternalLink className="h-4 w-4" />
               </button>
             </div>

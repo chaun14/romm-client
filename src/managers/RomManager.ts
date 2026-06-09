@@ -1,6 +1,5 @@
 import fs from "fs";
 import path from "path";
-import AdmZip from "adm-zip";
 import unzipper from "unzipper";
 
 import { RommClient } from "../RomMClient";
@@ -434,7 +433,7 @@ export class RomManager {
       }
 
       // Step 1: Ensure ROM is available (download if needed) - only for external emulators
-      const launchResult = await this.launchRom(rom, onProgress, () => {}, () => {
+      const launchResult = await this.launchRom(rom, onProgress, () => { }, () => {
         onProgress({ step: "download", percent: 100, downloaded: "100.00", total: "100.00", message: "ROM ready", complete: true });
       });
       if (!launchResult.success) {
