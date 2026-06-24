@@ -4,10 +4,27 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 
 jobs:
-  release:
-    runs-on: windows-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - name: Linux amd64
+            image: ubuntu-24.04
+          - name: Linux arm64
+            image: ubuntu-24.04-arm
+          - name: macOS
+            image: macos-latest
+          - name: Windows
+            image: windows-latest
+    runs-on: ${{ matrix.os.image }}
+    name: Build (${{ matrix.os.name }})
+    permissions:
+      contents: write
+      packages: write
 
     steps:
       - name: Checkout code
@@ -18,10 +35,18 @@ jobs:
         with:
           node-version: "24"
 
+      - name: Install Flatpak tooling
+        if: startsWith(matrix.os.name, 'Linux')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder elfutils
+          flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install -y --user flathub org.freedesktop.Platform//23.08 org.freedesktop.Sdk//23.08 org.electronjs.Electron2.BaseApp//23.08
+
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Build and publish
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run publish

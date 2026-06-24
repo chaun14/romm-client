@@ -14,7 +14,7 @@
     "dist:win": "npm run build && electron-builder --win",
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:linux": "npm run build && electron-builder --linux",
-    "publish": "npm run build && electron-builder --win --publish always"
+    "publish": "npm run build && electron-builder --publish always"
   },
   "keywords": [
     "romm",
@@ -79,7 +79,29 @@
       "target": "dmg"
     },
     "linux": {
-      "target": "AppImage"
+      "target": [
+        "AppImage",
+        "flatpak"
+      ],
+      "category": "Game",
+      "icon": "build/icon.png",
+      "artifactName": "RomMClient-${version}-${arch}.${ext}",
+      "synopsis": "Desktop client for the RomM API",
+      "syncDesktopName": true
+    },
+    "flatpak": {
+      "runtimeVersion": "23.08",
+      "baseVersion": "23.08",
+      "branch": "stable",
+      "finishArgs": [
+        "--share=ipc",
+        "--socket=x11",
+        "--socket=wayland",
+        "--socket=pulseaudio",
+        "--share=network",
+        "--device=all",
+        "--filesystem=home"
+      ]
     },
     "nsis": {
       "oneClick": false,
