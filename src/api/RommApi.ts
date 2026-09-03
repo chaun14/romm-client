@@ -66,7 +66,7 @@ export class RommApi {
     return cookies;
   }
 
-  private async handleApiError(error: any): Promise<{ success: false; error: string }> {
+  private async handleApiError(error: any): Promise<{ success: false; error: string; status?: number; code?: string }> {
     console.error(`[ROMM API] API Error details:`, {
       message: error.message,
       status: error.response?.status,
@@ -82,6 +82,8 @@ export class RommApi {
     return {
       success: false,
       error: error.response?.data?.detail || error.response?.data?.message || error.message,
+      status: typeof error.response?.status === "number" ? error.response.status : undefined,
+      code: typeof error.code === "string" ? error.code : undefined,
     };
   }
 
@@ -174,8 +176,13 @@ export class RommApi {
         throw new Error("Session validation failed" + response.status);
       }
     } catch (error: any) {
-      console.log("Session login failed - session expired or invalid." + error.message);
-      this.clearAuth();
+      const status = error.response?.status;
+      if (status === 401 || status === 403) {
+        console.log(`Session login rejected by RomM (${status}); clearing the in-memory session.`);
+        this.clearAuth();
+      } else {
+        console.warn(`Session validation could not reach RomM; preserving the session: ${error.message}`);
+      }
       return this.handleApiError(error);
     }
   }

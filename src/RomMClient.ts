@@ -180,9 +180,14 @@ export class RommClient extends BrowserWindow {
       const result = await this.rommApi.loginWithSession(this.settings.sessionToken, this.settings.csrfToken || undefined);
 
       if (!result.success) {
-        this.appSettingsManager.setSetting("sessionToken", null);
-        this.appSettingsManager.setSetting("csrfToken", null);
-        this.settings = this.appSettingsManager.getSettings();
+        if (result.status === 401 || result.status === 403) {
+          console.warn(`Saved session rejected by RomM (${result.status}); removing stored tokens`);
+          this.appSettingsManager.updateSettings({ sessionToken: null, csrfToken: null });
+          await this.appSettingsManager.saveSettings();
+          this.settings = this.appSettingsManager.getSettings();
+        } else {
+          console.warn(`RomM is unavailable; preserving the saved session for the next startup`);
+        }
         return false;
       }
 
