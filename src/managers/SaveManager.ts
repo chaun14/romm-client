@@ -60,8 +60,9 @@ export class SaveManager {
    */
   async hasCloudSaves(rom: Rom): Promise<boolean> {
     try {
-      if (!this.rommClient.rommApi) throw new Error("RomM API is not initialized");
-      const cloudResult = await this.rommClient.rommApi.downloadSave(rom.id);
+      const rommApi = this.rommClient.getOnlineRommApi();
+      if (!rommApi) return false;
+      const cloudResult = await rommApi.downloadSave(rom.id);
       return cloudResult.success && cloudResult.data && cloudResult.data.length > 0;
     } catch {
       return false;
@@ -74,13 +75,11 @@ export class SaveManager {
   async getCloudSaves(rom: Rom): Promise<any[]> {
     try {
       console.log(`[SAVE MANAGER] Checking cloud saves for ROM ${rom.id} (${rom.name})`);
-      if (!this.rommClient.rommApi) {
-        console.error(`[SAVE MANAGER] RomM API is not initialized`);
-        throw new Error("RomM API is not initialized");
-      }
+      const rommApi = this.rommClient.getOnlineRommApi();
+      if (!rommApi) return [];
 
       console.log(`[SAVE MANAGER] Calling RomM API downloadSave for ROM ${rom.id}`);
-      const cloudResult = await this.rommClient.rommApi.downloadSave(rom.id);
+      const cloudResult = await rommApi.downloadSave(rom.id);
       /*
       console.log(`[SAVE MANAGER] RomM API response:`, {
         success: cloudResult.success,
@@ -149,8 +148,14 @@ export class SaveManager {
       const localSaveDir = this.getLocalSaveDir(rom);
       console.log(`[SAVE MANAGER] Local save directory: ${localSaveDir}`);
 
-      console.log(`[SAVE MANAGER] Checking local, cloud, and getting cloud saves...`);
-      const [hasLocal, hasCloud, cloudSaves, localSaveDate] = await Promise.all([this.hasLocalSaves(rom), this.hasCloudSaves(rom), this.getCloudSaves(rom), this.getLocalSaveDate(rom)]);
+      const rommApi = this.rommClient.getOnlineRommApi();
+      console.log(rommApi ? `[SAVE MANAGER] Checking local and cloud saves...` : `[SAVE MANAGER] RomM is offline; checking local saves only`);
+      const [hasLocal, localSaveDate, cloudSaves] = await Promise.all([
+        this.hasLocalSaves(rom),
+        this.getLocalSaveDate(rom),
+        rommApi ? this.getCloudSaves(rom) : Promise.resolve([]),
+      ]);
+      const hasCloud = cloudSaves.length > 0;
       const cloudSaveDate = this.getLatestCloudSaveDate(cloudSaves);
       const lastSaveTime = Math.max(Date.parse(localSaveDate || "") || 0, Date.parse(cloudSaveDate || "") || 0);
       const lastSaveDate = lastSaveTime > 0 ? new Date(lastSaveTime).toISOString() : null;
@@ -253,7 +258,7 @@ export class SaveManager {
       console.log(`[SAVE MANAGER] Syncing ${saveFiles.length} save files for ROM ${rom.id}`);
 
       // Upload to cloud if API is available
-      if (this.rommClient.rommApi) {
+      if (this.rommClient.getOnlineRommApi()) {
         // TODO: Implement cloud upload
         console.log(`[SAVE MANAGER] Cloud upload not yet implemented`);
       }

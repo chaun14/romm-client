@@ -262,7 +262,7 @@ export class AzaharEmulator extends Emulator {
           const syncResult = await this.handleSaveSync(rom, saveDir, rommAPI, saveManager);
           if (!syncResult.success) throw new Error(syncResult.error || "Azahar save sync failed");
           await fs.rm(saveDir, { recursive: true, force: true });
-          onProgress?.({ step: "complete", percent: 100, message: "Azahar saves synced", complete: true });
+          onProgress?.({ step: "complete", percent: 100, message: rommAPI ? "Azahar saves synced" : "Azahar saves stored locally (offline)", complete: true });
         } catch (error: any) {
           console.warn(`[AZAHAR] Session finalization failed: ${error.message}`);
           onProgress?.({ step: "error", percent: 100, message: error.message, complete: true, error: error.message });

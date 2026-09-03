@@ -8,6 +8,7 @@ export function RomModal({
   rom,
   baseUrl,
   canLaunchIntegrated,
+  canUseRomm,
   onClose,
   onLaunch,
   onLaunchIntegrated,
@@ -16,6 +17,7 @@ export function RomModal({
   rom: Rom;
   baseUrl: string;
   canLaunchIntegrated: boolean;
+  canUseRomm: boolean;
   onClose: () => void;
   onLaunch: () => void;
   onLaunchIntegrated: () => void;
@@ -61,10 +63,12 @@ export function RomModal({
                     Launch with EmulatorJS
                   </button>
                 ) : null}
-                <button className="flex items-center gap-2 rounded-md border border-line px-4 py-2 text-sm hover:border-brand" onClick={onOpenInRomm}>
-                  <ExternalLink className="h-4 w-4" />
-                  Open in RomM
-                </button>
+                {canUseRomm ? (
+                  <button className="flex items-center gap-2 rounded-md border border-line px-4 py-2 text-sm hover:border-brand" onClick={onOpenInRomm}>
+                    <ExternalLink className="h-4 w-4" />
+                    Open in RomM
+                  </button>
+                ) : null}
               </div>
             </div>
           </div>

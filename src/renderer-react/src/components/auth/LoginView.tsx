@@ -1,12 +1,20 @@
-import { Cloud, Loader2, Lock, LogIn } from "lucide-react";
+import { Cloud, Loader2, Lock, LogIn, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
 
-export function LoginView({ onAuthenticated }: { onAuthenticated: () => Promise<void> | void }) {
+export function LoginView({
+  onAuthenticated,
+  onContinueOffline,
+  offlineRomCount,
+}: {
+  onAuthenticated: () => Promise<void> | void;
+  onContinueOffline: () => Promise<void> | void;
+  offlineRomCount: number;
+}) {
   const [serverUrl, setServerUrl] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [status, setStatus] = useState<"idle" | "checking" | "logging-in">("idle");
+  const [status, setStatus] = useState<"idle" | "checking" | "logging-in" | "offline">("idle");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -66,6 +74,17 @@ export function LoginView({ onAuthenticated }: { onAuthenticated: () => Promise<
     } catch (loginError: any) {
       setError(loginError.message || "OAuth login failed");
     } finally {
+      setStatus("idle");
+    }
+  };
+
+  const continueOffline = async () => {
+    setError("");
+    setStatus("offline");
+    try {
+      await onContinueOffline();
+    } catch (offlineError: any) {
+      setError(offlineError.message || "Unable to start offline mode");
       setStatus("idle");
     }
   };
@@ -142,6 +161,22 @@ export function LoginView({ onAuthenticated }: { onAuthenticated: () => Promise<
             <LogIn className="h-4 w-4" />
             Login with RomM web session
           </button>
+
+          {offlineRomCount > 0 ? (
+            <div className="border-t border-line pt-4">
+              <button
+                className="flex w-full items-center justify-center gap-2 rounded-md border border-amber-400/40 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-100 transition hover:border-amber-300 hover:bg-amber-500/15 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={continueOffline}
+                disabled={busy}
+              >
+                {status === "offline" ? <Loader2 className="h-4 w-4 animate-spin" /> : <WifiOff className="h-4 w-4" />}
+                Continue offline
+              </button>
+              <div className="mt-2 text-center text-xs text-slate-500">
+                {offlineRomCount} local {offlineRomCount === 1 ? "game" : "games"} available
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

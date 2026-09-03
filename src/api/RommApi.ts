@@ -5,6 +5,8 @@ import { pipeline } from "stream/promises";
 import type { ApiResponse, DownloadProgress, RomOptions, HeartbeatResponse, User, ConfigResponse, Platform, StatsResponse, Rom, RomDetails, RomsResponse, LocalRom } from "../types/RommApi";
 const FormData = require("form-data");
 
+const API_REQUEST_TIMEOUT_MS = 10_000;
+
 type HttpClient = {
   get: (url: string, options?: any) => Promise<any>;
   post: (url: string, data?: any, options?: any) => Promise<any>;
@@ -23,6 +25,7 @@ export class RommApi {
   public sessionToken: string | null = null;
   private csrfToken: string | null = null;
   private client: HttpClient | null = null;
+  private available = false;
   private axiosPromise: Promise<AxiosModule["default"]> = import("axios").then((module) => (module as AxiosModule).default);
 
   constructor(baseUrl: string = "") {
@@ -52,6 +55,7 @@ export class RommApi {
       baseURL: this.baseUrl,
       withCredentials: true,
       headers,
+      timeout: API_REQUEST_TIMEOUT_MS,
     });
   }
 
@@ -67,6 +71,10 @@ export class RommApi {
   }
 
   private async handleApiError(error: any): Promise<{ success: false; error: string; status?: number; code?: string }> {
+    const status = error.response?.status;
+    if (typeof status !== "number" || status === 401 || status === 403 || status >= 500) {
+      this.available = false;
+    }
     console.error(`[ROMM API] API Error details:`, {
       message: error.message,
       status: error.response?.status,
@@ -90,7 +98,12 @@ export class RommApi {
   setBaseUrl(url: string): void {
     this.baseUrl = url.replace(/\/$/, "");
     this.client = null;
+    this.available = false;
     void this.initClient();
+  }
+
+  get isAvailable(): boolean {
+    return this.available;
   }
 
   get isAuthenticated(): boolean {
@@ -119,12 +132,14 @@ export class RommApi {
       const loginResponse = await axios.post(`${this.baseUrl}/api/login`, null, {
         withCredentials: true,
         headers: { Authorization: `Basic ${auth}` },
+        timeout: API_REQUEST_TIMEOUT_MS,
       });
 
       // Get main page for additional cookies
       const pageResponse = await axios.get(this.baseUrl, {
         withCredentials: true,
         headers: { Authorization: `Basic ${auth}` },
+        timeout: API_REQUEST_TIMEOUT_MS,
       });
 
       // Parse all cookies
@@ -141,6 +156,7 @@ export class RommApi {
       this.csrfToken = cookies["romm_csrftoken"] || cookies["csrftoken"];
 
       await this.initClient();
+      this.available = true;
       return { success: true, data: username };
     } catch (error: any) {
       this.clearAuth();
@@ -171,6 +187,7 @@ export class RommApi {
 
       if (response.status === 200 && response.data) {
         console.log("Session login successful - session is still valid.");
+        this.available = true;
         return { success: true, data: true };
       } else {
         throw new Error("Session validation failed" + response.status);
@@ -191,6 +208,7 @@ export class RommApi {
     // For OAuth, the token is actually the session token
     this.sessionToken = `romm_session=${token}`;
     this.client = null;
+    this.available = false;
     void this.initClient();
   }
 
@@ -202,6 +220,7 @@ export class RommApi {
 
       if (response.status === 200 && response.data) {
         console.log("OAuth authentication successful - session is valid.");
+        this.available = true;
         return { success: true, data: true };
       } else {
         throw new Error("Authentication test failed");
@@ -220,6 +239,7 @@ export class RommApi {
   clearAuth(): void {
     this.sessionToken = null;
     this.csrfToken = null;
+    this.available = false;
 
     this.client = null;
     void this.initClient();
@@ -257,6 +277,7 @@ export class RommApi {
 
       const response = await client.get("/api/heartbeat");
       if (response.status !== 200) throw new Error(`HTTP ${response.status}`);
+      this.available = true;
 
       // Handle different response formats
       const data = response.data;
@@ -290,6 +311,7 @@ export class RommApi {
     try {
       const client = await this.getClient();
       const response = await client[method](endpoint, options);
+      this.available = true;
       return { success: true, data: response.data };
     } catch (error: any) {
       return this.handleApiError(error);
@@ -414,6 +436,7 @@ export class RommApi {
           const client = await this.getClient();
           const response = await client.get(endpoint, {
             responseType: "stream",
+            timeout: 0,
           });
 
           if (response.status !== 200) {
@@ -484,6 +507,7 @@ export class RommApi {
           console.log(`Downloaded ROM file ID: ${id} to ${dest_path}`);
         }
   
+        this.available = true;
         return { success: true };
     } catch (error: any) {
       return this.handleApiError(error);
@@ -546,8 +570,10 @@ export class RommApi {
         },
         maxContentLength: Infinity,
         maxBodyLength: Infinity,
+        timeout: 0,
       });
 
+      this.available = true;
       return { success: true, data: response.data };
     } catch (error: any) {
       console.error(`[ROMM API] Upload save failed: ${error.message}`);
@@ -573,13 +599,14 @@ export class RommApi {
 
       console.log(`[ROMM API] Starting download from: ${downloadPath}`);
       const client = await this.getClient();
-      const response = await client.get(downloadPath, { responseType: "arraybuffer" });
+      const response = await client.get(downloadPath, { responseType: "arraybuffer", timeout: 0 });
       console.log(`[ROMM API] Save file download completed:`, {
         status: response.status,
         contentLength: response.data ? response.data.length : "unknown",
         contentType: response.headers["content-type"],
       });
 
+      this.available = true;
       return { success: true, data: response.data };
     } catch (error: any) {
       console.error(`[ROMM API] Error downloading save file:`, error.message);

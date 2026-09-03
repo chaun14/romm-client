@@ -38,6 +38,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
         logout: () => ipcRenderer.invoke('config:logout'),
         getCurrentUser: () => ipcRenderer.invoke('config:get-current-user'),
         getBaseUrl: () => ipcRenderer.invoke('config:get-base-url'),
+        getOfflineStatus: () => ipcRenderer.invoke('config:get-offline-status'),
+        continueOffline: () => ipcRenderer.invoke('config:continue-offline'),
         getPlatformImageUrl: (slug) => ipcRenderer.invoke('config:get-platform-image-url', slug),
         startOAuth: (url) => ipcRenderer.invoke('config:start-oauth', url),
         hasSavedCredentials: () => ipcRenderer.invoke('config:has-saved-credentials'),

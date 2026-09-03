@@ -19,6 +19,8 @@ export class RommClient extends BrowserWindow {
   private emulatorManager: EmulatorManager | null = null;
   public saveManager: SaveManager | null = null;
   public romManager: RomManager | null = null;
+  private readonly forcedOfflineMode = process.argv.includes("--offline");
+  private offlineMode = this.forcedOfflineMode;
   private romsFolder: string | null = null;
   private savesFolder: string | null = null;
   private emulatorConfigsFolder: string | null = null;
@@ -41,6 +43,7 @@ export class RommClient extends BrowserWindow {
     super(defaultOptions);
 
     console.log("Initializing RommClient version " + app.getVersion());
+    if (this.forcedOfflineMode) console.log("[OFFLINE] Offline mode forced by command-line argument");
 
     this.setMenu(null);
     this.setMenuBarVisibility(false);
@@ -172,6 +175,10 @@ export class RommClient extends BrowserWindow {
   }
 
   private async authenticateSavedSession(): Promise<boolean> {
+    if (this.offlineMode) {
+      console.log("[OFFLINE] Skipping saved-session authentication");
+      return false;
+    }
     if (!this.settings.baseUrl || !this.settings.sessionToken) {
       return false;
     }
@@ -221,6 +228,37 @@ export class RommClient extends BrowserWindow {
 
   public setRommApi(rommApi: RommApi) {
     this.rommApi = rommApi;
+  }
+
+  public getOnlineRommApi(): RommApi | null {
+    return !this.offlineMode && this.rommApi?.isAvailable ? this.rommApi : null;
+  }
+
+  public getOfflineStatus(): { active: boolean; forced: boolean; localRomCount: number } {
+    return {
+      active: this.offlineMode,
+      forced: this.forcedOfflineMode,
+      localRomCount: this.romManager?.getLocalRoms().length || 0,
+    };
+  }
+
+  public async continueOffline(): Promise<{ success: boolean; localRomCount: number; error?: string }> {
+    const previousMode = this.offlineMode;
+    this.offlineMode = true;
+    const localRomCount = this.romManager ? await this.romManager.loadLocalRoms() : 0;
+    if (localRomCount === 0) {
+      this.offlineMode = previousMode || this.forcedOfflineMode;
+      return { success: false, localRomCount: 0, error: "No local ROMs are available for offline mode" };
+    }
+
+    console.log(`[OFFLINE] Continuing with ${localRomCount} local ROMs`);
+    return { success: true, localRomCount };
+  }
+
+  public leaveOfflineMode(): boolean {
+    if (this.forcedOfflineMode) return false;
+    this.offlineMode = false;
+    return true;
   }
 
   private setupLoginHandler() {

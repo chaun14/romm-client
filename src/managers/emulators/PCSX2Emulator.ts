@@ -519,16 +519,20 @@ export class PCSX2Emulator extends Emulator {
     try {
       console.log(`Comparing local and cloud saves for ROM ${rom.id}...`);
 
-      if (!rommAPI) {
-        throw new Error("RomM API is not available");
-      }
-
       // Check for local saves in persistent save directory
       const localSaveDir = saveManager.getLocalSaveDir(rom);
       let hasLocal = false;
       if (fsSync.existsSync(localSaveDir)) {
         const items = await fs.readdir(localSaveDir, { recursive: true });
         hasLocal = items.length > 0;
+      }
+
+      if (!rommAPI) {
+        console.log(`[PCSX2] RomM is offline; using local save state only`);
+        return {
+          success: true,
+          data: { hasLocal, hasCloud: false, localSave: hasLocal ? localSaveDir : null, cloudSaves: [], recommendation: hasLocal ? "local" : "none" },
+        };
       }
 
       // Check for cloud saves
@@ -699,6 +703,10 @@ export class PCSX2Emulator extends Emulator {
               if (!syncResult.success) {
                 throw new Error(syncResult.error || "Save sync failed");
               }
+            } else {
+              onProgress?.({ step: "save-sync", percent: 75, message: "Storing saves locally..." });
+              const extracted = await this.extractSavesFromSession(saveDir, saveManager.getLocalSaveDir(rom));
+              console.log(`[PCSX2] Stored ${extracted.length} save files locally for ROM ${rom.id}`);
             }
 
             // Clean up session directory after save sync completes
@@ -707,7 +715,7 @@ export class PCSX2Emulator extends Emulator {
             await this.deleteDirectoryRecursive(saveDir);
             console.log(`[PCSX2] Session directory cleaned up successfully`);
 
-            onProgress?.({ step: "complete", percent: 100, message: "Saves synced", complete: true });
+            onProgress?.({ step: "complete", percent: 100, message: rommAPI ? "Saves synced" : "Saves stored locally (offline)", complete: true });
           } catch (syncError: any) {
             console.warn(`[PCSX2] Failed to finish save sync: ${syncError.message}`);
             onProgress?.({ step: "error", percent: 100, message: syncError.message, complete: true, error: syncError.message });

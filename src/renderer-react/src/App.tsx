@@ -49,6 +49,8 @@ export function App() {
   const [view, setView] = useState<View>("platforms");
   const [authChecking, setAuthChecking] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
+  const [offlineMode, setOfflineMode] = useState(false);
+  const [offlineRomCount, setOfflineRomCount] = useState(0);
   const [loadingMessage, setLoadingMessage] = useState("Initializing");
   const [loadingSteps, setLoadingSteps] = useState<LoadingStep[]>(initialLoadingSteps);
   const [loading, setLoading] = useState(true);
@@ -422,6 +424,46 @@ export function App() {
     await delay(loadingStepDelayMs);
   }, [loadEmulators, loadInstalled, loadPlatforms, setLoadingStep]);
 
+  const loadOfflineInitialData = useCallback(async () => {
+    setLoadingStep("cache", "pending", "Loading emulator configuration");
+    await delay(loadingStepDelayMs);
+    await loadEmulators();
+    setLoadingStep("cache", "success", "Emulator configuration loaded");
+    await delay(loadingStepDelayMs);
+
+    setLoadingStep("roms", "pending", "Loading local ROMs");
+    await delay(loadingStepDelayMs);
+    await loadInstalled();
+    setLoadingStep("roms", "success", "Local ROMs loaded");
+    setView("installed");
+    await delay(loadingStepDelayMs);
+  }, [loadEmulators, loadInstalled, setLoadingStep]);
+
+  const continueOffline = useCallback(async () => {
+    setAuthChecking(true);
+    resetLoadingSteps();
+    setLoadingStep("url", "warning", "RomM connection disabled");
+    setLoadingStep("auth", "pending", "Starting offline mode");
+
+    try {
+      const result = await api.config.continueOffline();
+      if (!result?.success) throw new Error(result?.error || "No local ROMs are available");
+
+      const localRomCount = Number(result.data?.localRomCount || 0);
+      setOfflineRomCount(localRomCount);
+      setOfflineMode(true);
+      setAuthenticated(true);
+      setUser(null);
+      setStats(null);
+      setPlatforms([]);
+      setRoms([]);
+      setLoadingStep("auth", "warning", `Offline mode - ${localRomCount} local ${localRomCount === 1 ? "game" : "games"}`);
+      await loadOfflineInitialData();
+    } finally {
+      setAuthChecking(false);
+    }
+  }, [loadOfflineInitialData, resetLoadingSteps, setLoadingStep]);
+
   const finishAuthentication = useCallback(async () => {
     setAuthChecking(true);
     resetLoadingSteps();
@@ -439,6 +481,8 @@ export function App() {
     await delay(loadingStepDelayMs);
     setAuthenticated(isAuthenticated);
     if (isAuthenticated) {
+      setOfflineMode(false);
+      setView("platforms");
       await loadInitialData();
     }
     setAuthChecking(false);
@@ -455,6 +499,21 @@ export function App() {
       setBaseUrl(savedUrl || "");
       setLoadingStep("url", savedUrl ? "success" : "warning", savedUrl ? "RomM URL found" : "RomM URL not configured");
       await delay(loadingStepDelayMs);
+
+      const offlineStatusResult = await api.config.getOfflineStatus().catch(() => null);
+      const offlineStatus = getResultData(offlineStatusResult, { active: false, forced: false, localRomCount: 0 });
+      setOfflineRomCount(Number(offlineStatus.localRomCount || 0));
+      if (offlineStatus.active) {
+        try {
+          await continueOffline();
+        } catch (error: any) {
+          setLoadingStep("auth", "error", error.message || "Unable to start forced offline mode");
+          setAuthenticated(false);
+          setOfflineMode(false);
+          setAuthChecking(false);
+        }
+        return;
+      }
 
       setLoadingStep("auth", "pending", "Authenticating");
       await delay(loadingStepDelayMs);
@@ -475,6 +534,7 @@ export function App() {
       await delay(loadingStepDelayMs);
       setAuthenticated(isAuthenticated);
       if (isAuthenticated) {
+        setOfflineMode(false);
         await loadInitialData();
       }
       setAuthChecking(false);
@@ -495,7 +555,7 @@ export function App() {
       events.removeRomLaunchListeners?.();
       events.removeSaveSyncResultListener?.();
     };
-  }, [loadInitialData, notify, refreshShell, resetLoadingSteps, setLoadingStep]);
+  }, [continueOffline, loadInitialData, notify, refreshShell, resetLoadingSteps, setLoadingStep]);
 
   useEffect(() => {
     const loadAppVersion = async () => {
@@ -549,10 +609,10 @@ export function App() {
   }, [notify]);
 
   useEffect(() => {
-    if (!authenticated || updateCheckStartedRef.current) return;
+    if (!authenticated || offlineMode || updateCheckStartedRef.current) return;
     updateCheckStartedRef.current = true;
     window.setTimeout(() => checkForUpdates(true), 1500);
-  }, [authenticated, checkForUpdates]);
+  }, [authenticated, checkForUpdates, offlineMode]);
 
   useEffect(() => {
     selectedPlatformRef.current = selectedPlatform;
@@ -584,10 +644,10 @@ export function App() {
 
   const installedPlatforms = useMemo(() => Array.from(new Set(installedRoms.map(romPlatform))).sort(), [installedRoms]);
   const selectedRomSupportsIntegrated = useMemo(() => {
-    if (!selectedRom) return false;
+    if (!selectedRom || offlineMode) return false;
     const platform = selectedRom.platform_slug || selectedRom.platform_fs_slug;
     return Boolean(platform && emulators.rommIntegrated?.platforms?.includes(platform));
-  }, [emulators, selectedRom]);
+  }, [emulators, offlineMode, selectedRom]);
 
   if (authChecking) {
     return <LoadingView steps={loadingSteps} message={loadingMessage} />;
@@ -596,7 +656,7 @@ export function App() {
   if (!authenticated) {
     return (
       <>
-        <LoginView onAuthenticated={finishAuthentication} />
+        <LoginView onAuthenticated={finishAuthentication} onContinueOffline={continueOffline} offlineRomCount={offlineRomCount} />
         <Toasts toasts={toasts} />
       </>
     );
@@ -604,7 +664,7 @@ export function App() {
 
   return (
     <div className="flex h-full bg-ink text-slate-100">
-      <Sidebar view={view} user={user} baseUrl={baseUrl} updateAvailable={update.status === "available" || update.status === "downloaded"} onPlatforms={resetPlatformView} onView={navigateToView} />
+      <Sidebar view={view} user={user} baseUrl={baseUrl} offlineMode={offlineMode} updateAvailable={update.status === "available" || update.status === "downloaded"} onPlatforms={resetPlatformView} onView={navigateToView} />
 
       <main className="flex min-w-0 flex-1 flex-col">
         <StatsBar stats={stats} />
@@ -726,6 +786,7 @@ export function App() {
           rom={selectedRom}
           baseUrl={baseUrl}
           canLaunchIntegrated={selectedRomSupportsIntegrated}
+          canUseRomm={!offlineMode}
           onClose={() => setSelectedRom(null)}
           onLaunch={() => launchRom(selectedRom)}
           onLaunchIntegrated={() => launchRom(selectedRom, true)}

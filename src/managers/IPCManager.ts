@@ -102,6 +102,7 @@ export class IPCManager {
 
       // If login successful, save session tokens
       if (loginResult.success) {
+        this.rommClient.leaveOfflineMode();
         this.rommClient.appSettingsManager.setSetting("username", null);
         this.rommClient.appSettingsManager.setSetting("password", null);
         this.rommClient.appSettingsManager.setSetting("sessionToken", this.rommClient.rommApi.sessionTokenValue);
@@ -160,6 +161,15 @@ export class IPCManager {
       return this.rommClient.settings.baseUrl || null;
     });
 
+    ipcMain.handle("config:get-offline-status", async () => {
+      return { success: true, data: this.rommClient.getOfflineStatus() };
+    });
+
+    ipcMain.handle("config:continue-offline", async () => {
+      const result = await this.rommClient.continueOffline();
+      return result.success ? { success: true, data: result } : result;
+    });
+
     ipcMain.handle("config:get-platform-image-url", async (event, slug) => {
       if (this.rommClient.rommApi) return this.rommClient.rommApi.getPlatformImageUrl(slug);
       else throw new Error("RomM API is not initialized");
@@ -185,6 +195,7 @@ export class IPCManager {
       }
       const result = await this.rommClient.rommApi.loginWithSession(this.rommClient.settings.sessionToken!, this.rommClient.settings.csrfToken || undefined);
       if (result.success) {
+        this.rommClient.leaveOfflineMode();
         await this.rommClient.initializeAuthenticatedData();
       }
       return result;
@@ -253,6 +264,7 @@ export class IPCManager {
                   const authResult = await this.rommClient.rommApi.testAuthentication();
 
                   if (authResult.success) {
+                    this.rommClient.leaveOfflineMode();
                     // Save session tokens
                     this.rommClient.appSettingsManager.setSetting("sessionToken", this.rommClient.rommApi.sessionTokenValue);
                     this.rommClient.appSettingsManager.setSetting("csrfToken", this.rommClient.rommApi.csrfTokenValue);
@@ -313,11 +325,11 @@ export class IPCManager {
 
     ipcMain.handle("roms:fetch-local", async () => {
       console.log("[IPC]" + `Fetching local ROMs`);
-      if (this.rommClient.rommApi && this.rommClient.romManager) {
+      if (this.rommClient.romManager) {
         await this.rommClient.romManager.loadLocalRoms();
         return this.rommClient.romManager.getLocalRoms();
       }
-      else throw new Error("RomM API is not initialized");
+      else throw new Error("RomManager is not initialized");
     });
 
     ipcMain.handle("roms:search", async (event, query, platformId, limit, offset) => {
@@ -487,7 +499,8 @@ export class IPCManager {
           return dataUrl ? { success: true, data: dataUrl } : { success: false, error: "Local cover not found" };
         }
 
-        const baseUrl = this.rommClient.rommApi?.getBaseUrl() || this.rommClient.settings.baseUrl;
+        const rommApi = this.rommClient.getOnlineRommApi();
+        const baseUrl = rommApi?.getBaseUrl() || this.rommClient.settings.baseUrl;
         if (!baseUrl) {
           return { success: false, error: "RomM base URL not configured" };
         }
@@ -495,7 +508,7 @@ export class IPCManager {
         const absoluteUrl = new URL(imageUrl, baseUrl).toString();
         const baseOrigin = new URL(baseUrl).origin;
         const imageOrigin = new URL(absoluteUrl).origin;
-        const headers = imageOrigin === baseOrigin ? this.rommClient.rommApi?.getAuthHeaders() || {} : {};
+        const headers = imageOrigin === baseOrigin ? rommApi?.getAuthHeaders() || {} : {};
 
         const axios = await getAxios();
         const response = await axios.get(absoluteUrl, {
@@ -906,7 +919,7 @@ export class IPCManager {
         const configs = this.emulatorManager.getConfigurations();
         const config = configs[emulatorKey];
 
-        if (emulatorKey === "rommIntegrated" || (config && config.path)) {
+        if ((emulatorKey === "rommIntegrated" && this.rommClient.getOnlineRommApi()) || (emulatorKey !== "rommIntegrated" && config && config.path)) {
           availableEmulators.push(emulatorKey);
         }
       }
@@ -1006,10 +1019,12 @@ export class IPCManager {
       console.log(`[IPCManager] Launching ROM ${rom.name} with integrated emulator`);
 
       // Get the base URL for RomM
-      const baseUrl = this.rommClient.rommApi?.getBaseUrl();
-      if (!baseUrl) {
-        return { success: false, error: "RomM base URL not configured" };
+      const rommApi = this.rommClient.getOnlineRommApi();
+      const baseUrl = rommApi?.getBaseUrl();
+      if (!rommApi || !baseUrl) {
+        return { success: false, error: "The integrated emulator is unavailable while RomM is offline" };
       }
+      const sessionToken = rommApi.sessionToken;
 
       // Construct the EmulatorJS URL
       const emulatorJsUrl = `${baseUrl}/rom/${rom.id}/ejs`;
@@ -1033,7 +1048,7 @@ export class IPCManager {
       emulatorWindow.webContents.once("dom-ready", async () => {
         try {
           // Get session cookies from RomM API
-          const sessionCookies = this.rommClient.rommApi?.sessionToken + ";";
+          const sessionCookies = sessionToken + ";";
           if (sessionCookies) {
             // Parse and inject cookies
             const cookieStrings = sessionCookies.split("; ");

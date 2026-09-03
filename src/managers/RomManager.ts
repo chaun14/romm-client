@@ -82,11 +82,12 @@ export class RomManager {
   }
 
   private async downloadLocalCover(rom: Rom, source: string): Promise<string | undefined> {
-    const baseUrl = this.rommClient.rommApi?.getBaseUrl() || this.rommClient.settings.baseUrl;
+    const rommApi = this.rommClient.getOnlineRommApi();
+    const baseUrl = rommApi?.getBaseUrl() || this.rommClient.settings.baseUrl;
     if (!baseUrl) return undefined;
 
     const absoluteUrl = new URL(source, baseUrl).toString();
-    const headers = new URL(absoluteUrl).origin === new URL(baseUrl).origin ? this.rommClient.rommApi?.getAuthHeaders() || {} : {};
+    const headers = new URL(absoluteUrl).origin === new URL(baseUrl).origin ? rommApi?.getAuthHeaders() || {} : {};
     const axios = await axiosPromise;
     const response = await axios.get(absoluteUrl, {
       responseType: "arraybuffer",
@@ -123,7 +124,7 @@ export class RomManager {
     }
 
     const source = this.getCoverSource(rom);
-    if (!source || !this.rommClient.rommApi) return undefined;
+    if (!source || !this.rommClient.getOnlineRommApi()) return undefined;
 
     const existingDownload = this.coverDownloadPromises.get(rom.id);
     if (existingDownload) return existingDownload;
@@ -185,8 +186,9 @@ export class RomManager {
   }
 
   private async fetchDetailedRomMetadata(romId: number): Promise<Rom | null> {
-    if (!this.rommClient.rommApi) return null;
-    const response = await this.rommClient.rommApi.fetchRomById(romId);
+    const rommApi = this.rommClient.getOnlineRommApi();
+    if (!rommApi) return null;
+    const response = await rommApi.fetchRomById(romId);
     if (!response.success || !response.data) {
       console.warn(`[ROM MANAGER] Could not refresh detailed metadata for local ROM ${romId}: ${response.error || "unknown error"}`);
       return null;
@@ -283,12 +285,13 @@ export class RomManager {
   }
 
   async loadRemoteRoms(): Promise<number> {
-    if (!this.rommClient.rommApi) {
+    const rommApi = this.rommClient.getOnlineRommApi();
+    if (!rommApi) {
       throw new Error("Romm API is not available");
     }
 
     // Load ROMs from the remote API
-    const response = await this.rommClient.rommApi.fetchAllRoms();
+    const response = await rommApi.fetchAllRoms();
     if (!response.success) {
       throw new Error("Failed to load remote ROMs");
     }
@@ -383,7 +386,7 @@ export class RomManager {
 
             // When RomM is available, always persist the detailed endpoint
             // object rather than the lightweight library-list representation.
-            if (this.rommClient.rommApi) {
+            if (this.rommClient.getOnlineRommApi()) {
               const detailedRom = await this.fetchDetailedRomMetadata(numericRomId);
               if (detailedRom) {
                 rom = detailedRom;
@@ -572,9 +575,10 @@ export class RomManager {
       const romEmulatorPath = path.join(platformRomPath, "rom_" + rom.id);
       await this.ensureDirectory(platformRomPath, "platform ROM");
       await this.ensureDirectory(romEmulatorPath, "ROM");
-      if (!this.rommClient.rommApi) throw new Error("RomM API is not initialized");
+      const rommApi = this.rommClient.getOnlineRommApi();
+      if (!rommApi) throw new Error("RomM is offline and this ROM is not available locally");
       onProgress({ step: "download", percent: 0, downloaded: "0.00", total: "0.00", message: "Starting download..." });
-      let dlres = await this.rommClient.rommApi.downloadRom(rom, romEmulatorPath, onProgress);
+      let dlres = await rommApi.downloadRom(rom, romEmulatorPath, onProgress);
       if (!dlres || !dlres.success || dlres.error) throw new Error("Failed to download ROM: " + (dlres?.error || "Unknown error"));
       onProgress({ step: "download", percent: 100, downloaded: "100.00", total: "100.00", message: "Download complete" });
       // Add the folder and files to localRoms
@@ -759,15 +763,15 @@ export class RomManager {
       const configFolder = path.join(emulatorsConfigsFolder, emulatorKey);
       console.log("[LAUNCH FLOW] Setup emulator environment with config folder:", configFolder);
 
-      const setupResult = await emulator.setupEnvironment(rom, tempSaveDir, this.rommClient.rommApi, saveManager, configFolder);
+      const setupResult = await emulator.setupEnvironment(rom, tempSaveDir, this.rommClient.getOnlineRommApi(), saveManager, configFolder);
       if (!setupResult.success) {
         throw new Error(`Failed to setup emulator environment: ${setupResult.error}`);
       }
 
       // Step 5: Check for available saves (local and cloud)
-      console.log("[LAUNCH FLOW] Checking available saves...");
+      console.log(this.rommClient.getOnlineRommApi() ? "[LAUNCH FLOW] Checking available local and cloud saves..." : "[LAUNCH FLOW] RomM is offline; checking local saves only...");
 
-      const saveComparison = await emulator.getSaveComparison(rom, tempSaveDir, this.rommClient.rommApi, this.rommClient.saveManager, romFilePath);
+      const saveComparison = await emulator.getSaveComparison(rom, tempSaveDir, this.rommClient.getOnlineRommApi(), this.rommClient.saveManager, romFilePath);
       if (!saveComparison.success) {
         throw new Error(`Failed to check saves: ${saveComparison.error}`);
       }
@@ -804,7 +808,11 @@ export class RomManager {
       // Step 6: If there are saves, let user choose or use local by default
       let selectedSaveOption = "local";
       let selectedSaveId: number | undefined;
-      if (saveData.hasLocal || saveData.hasCloud) {
+      const offlineLaunch = !this.rommClient.getOnlineRommApi();
+      if (offlineLaunch) {
+        selectedSaveOption = saveData.hasLocal ? "local" : "none";
+        console.log(`[LAUNCH FLOW] Offline save choice: ${selectedSaveOption}`);
+      } else if (saveData.hasLocal || saveData.hasCloud) {
         // Call save choice callback if provided
         if (onSaveChoice) {
           // Create a serializable version of the ROM object for IPC
@@ -861,7 +869,7 @@ export class RomManager {
       if (selectedSaveOption === "cloud" && selectedSaveId) {
         // For cloud saves, use handleSaveChoice to download and launch
         console.log("[LAUNCH FLOW] Handling cloud save choice for save ID:", selectedSaveId);
-        finalLaunchResult = await emulator.handleSaveChoice(romData, "cloud", saveManager, this.rommClient.rommApi, selectedSaveId, onProgress);
+        finalLaunchResult = await emulator.handleSaveChoice(romData, "cloud", saveManager, this.rommClient.getOnlineRommApi(), selectedSaveId, onProgress);
         if (!finalLaunchResult.success) {
           throw new Error(`Failed to handle cloud save choice: ${finalLaunchResult.error}`);
         }
@@ -869,7 +877,7 @@ export class RomManager {
       } else if (selectedSaveOption === "local" && saveData.hasLocal) {
         // For local saves, use handleSaveChoice to prepare and launch
         console.log("[LAUNCH FLOW] Handling local save choice");
-        finalLaunchResult = await emulator.handleSaveChoice(romData, "local", saveManager, this.rommClient.rommApi, undefined, onProgress);
+        finalLaunchResult = await emulator.handleSaveChoice(romData, "local", saveManager, this.rommClient.getOnlineRommApi(), undefined, onProgress);
         if (!finalLaunchResult.success) {
           throw new Error(`Failed to handle local save choice: ${finalLaunchResult.error}`);
         }
@@ -877,7 +885,7 @@ export class RomManager {
       } else {
         // For no saves, use handleSaveChoice with "none"
         console.log("[LAUNCH FLOW] Handling fresh start (no saves)");
-        finalLaunchResult = await emulator.handleSaveChoice(romData, "none", saveManager, this.rommClient.rommApi, undefined, onProgress);
+        finalLaunchResult = await emulator.handleSaveChoice(romData, "none", saveManager, this.rommClient.getOnlineRommApi(), undefined, onProgress);
         if (!finalLaunchResult.success) {
           throw new Error(`Failed to handle fresh start: ${finalLaunchResult.error}`);
         }

@@ -6,6 +6,7 @@
   "scripts": {
     "start": "npm run build && electron .",
     "dev": "npm run build && electron . --dev",
+    "dev:offline": "npm run build && electron . --dev --offline",
     "build": "npm run build:main && npm run build:renderer && npm run copy-assets",
     "build:main": "tsc",
     "build:renderer": "vite build",

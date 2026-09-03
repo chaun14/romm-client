@@ -253,7 +253,8 @@ export class DolphinEmulator extends Emulator {
       await copyDirRecursive(dolphinSaveDir, romSaveDir);
       console.log(`Saves copied from ${dolphinSaveDir} to ${romSaveDir}`);
     } catch (error: any) {
-      console.warn(`Failed to copy saves: ${error.message}`);
+      console.error(`Failed to copy saves: ${error.message}`);
+      throw error;
     }
   }
 
@@ -414,42 +415,24 @@ export class DolphinEmulator extends Emulator {
     try {
       console.log(`[DOLPHIN] Comparing local and cloud saves for ROM ${rom.id}...`);
 
-      if (!rommAPI) {
-        throw new Error("RomM API is not available");
-      }
-
-      // Check for local saves in both Wii and GC directories
-      const wiiSaveDir = path.join(saveDir, "Wii");
-      const gcSaveDir = path.join(saveDir, "GC");
-
+      // The session directory was just created and is still empty here. Check
+      // the persistent per-ROM snapshot instead.
+      const localSaveDir = saveManager.getLocalSaveDir(rom);
       let hasLocal = false;
-
-      // Check Wii directory
-      if (fsSync.existsSync(wiiSaveDir)) {
-        const files = await fs.readdir(wiiSaveDir, { recursive: true });
-        if (
-          files.some((file: string) => {
-            const filePath = path.join(wiiSaveDir, file);
-            const stat = fsSync.statSync(filePath);
-            return stat.isFile();
-          })
-        ) {
-          hasLocal = true;
-        }
+      if (fsSync.existsSync(localSaveDir)) {
+        const files = await fs.readdir(localSaveDir, { recursive: true });
+        hasLocal = files.some((file: string) => {
+          const filePath = path.join(localSaveDir, file);
+          return fsSync.statSync(filePath).isFile();
+        });
       }
 
-      // Check GC directory
-      if (!hasLocal && fsSync.existsSync(gcSaveDir)) {
-        const files = await fs.readdir(gcSaveDir, { recursive: true });
-        if (
-          files.some((file: string) => {
-            const filePath = path.join(gcSaveDir, file);
-            const stat = fsSync.statSync(filePath);
-            return stat.isFile();
-          })
-        ) {
-          hasLocal = true;
-        }
+      if (!rommAPI) {
+        console.log(`[DOLPHIN] RomM is offline; using local save state only`);
+        return {
+          success: true,
+          data: { hasLocal, hasCloud: false, localSave: hasLocal ? localSaveDir : null, cloudSaves: [], recommendation: hasLocal ? "local" : "none" },
+        };
       }
 
       // Check for cloud saves
@@ -468,7 +451,7 @@ export class DolphinEmulator extends Emulator {
         data: {
           hasLocal,
           hasCloud,
-          localSave: hasLocal ? saveDir : null,
+          localSave: hasLocal ? localSaveDir : null,
           cloudSaves: hasCloud ? cloudResult.data : [],
           recommendation: hasLocal ? "local" : hasCloud ? "cloud" : "none",
         },
@@ -791,8 +774,15 @@ export class DolphinEmulator extends Emulator {
                 if (!syncResult.success) {
                   throw new Error(syncResult.error || "Save sync failed");
                 }
+              } else {
+                onProgress?.({ step: "save-sync", percent: 75, message: "Storing saves locally..." });
+                const persistentSaveDir = saveManager.getLocalSaveDir(rom);
+                await this.copySavesToRomDir(wiiSaveDir, path.join(persistentSaveDir, "Wii"));
+                await this.copySavesToRomDir(gcSaveDir, path.join(persistentSaveDir, "GC"));
+                await this.deleteDirectoryRecursive(saveDir);
+                console.log(`[DOLPHIN] Saves stored locally for ROM ${rom.id}`);
               }
-              onProgress?.({ step: "complete", percent: 100, message: "Saves synced", complete: true });
+              onProgress?.({ step: "complete", percent: 100, message: rommAPI ? "Saves synced" : "Saves stored locally (offline)", complete: true });
             } catch (syncError: any) {
               console.warn(`[DOLPHIN] Failed to finish save sync: ${syncError.message}`);
               onProgress?.({ step: "error", percent: 100, message: syncError.message, complete: true, error: syncError.message });
