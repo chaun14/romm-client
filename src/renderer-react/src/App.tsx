@@ -120,19 +120,24 @@ export function App() {
     setSaveChoice(null);
   }, []);
 
+  const cancelEmulatorChoice = useCallback(() => {
+    events.sendEmulatorChoice?.("cancel", emulatorChoiceRef.current?.rom);
+    setEmulatorChoice(null);
+  }, []);
+
   const goBack = useCallback(() => {
     if (saveChoiceRef.current) {
       cancelSaveChoice();
       return;
     }
 
-    if (downloadRef.current) {
-      setDownload(null);
+    if (emulatorChoiceRef.current) {
+      cancelEmulatorChoice();
       return;
     }
 
-    if (emulatorChoiceRef.current) {
-      setEmulatorChoice(null);
+    if (downloadRef.current) {
+      setDownload(null);
       return;
     }
 
@@ -150,7 +155,7 @@ export function App() {
     if (previousView) {
       setView(previousView);
     }
-  }, [cancelSaveChoice, resetPlatformView]);
+  }, [cancelEmulatorChoice, cancelSaveChoice, resetPlatformView]);
 
   const withCachedStatus = useCallback((items: Rom[], defaults: Partial<Rom> = {}) => {
     return items
@@ -307,8 +312,9 @@ export function App() {
 
   const launchRom = useCallback(
     async (rom: Rom, integrated = false) => {
+      const downloadOnly = !rom.isCached && !integrated;
       setSelectedRom(null);
-      setDownload({ title: integrated ? `Launching ${rom.name}` : `Preparing ${rom.name}`, percent: 0 });
+      setDownload({ title: integrated ? `Launching ${rom.name}` : downloadOnly ? `Downloading ${rom.name}` : `Preparing ${rom.name}`, percent: 0 });
 
       try {
         api.onRomDownloadProgress((progress: RomDownloadProgress) => {
@@ -323,26 +329,36 @@ export function App() {
           api.removeDownloadProgressListener();
           api.removeDownloadCompleteListener();
           setDownload(null);
+          clearRomStatus(rom.id);
+          setRoms((items) => items.map((item) => (item.id === rom.id ? { ...item, isCached: true, statusLoaded: true } : item)));
           notify(`${rom.name || "ROM"} is ready`, "success");
           loadInstalled();
         });
 
-        const result = await api.roms.launch(rom, integrated ? "rommIntegrated" : null);
+        const result = downloadOnly ? await api.roms.download(rom) : await api.roms.launch(rom, integrated ? "rommIntegrated" : null);
         if (!result?.success) {
-          throw new Error(result?.error || "Unable to launch ROM");
+          if (result?.cancelled) {
+            api.removeDownloadProgressListener();
+            api.removeDownloadCompleteListener();
+            setDownload(null);
+            return;
+          }
+          throw new Error(result?.error || (downloadOnly ? "Unable to download ROM" : "Unable to launch ROM"));
         }
 
-        if (integrated) {
+        if (integrated || result.integrated) {
+          api.removeDownloadProgressListener();
+          api.removeDownloadCompleteListener();
           setDownload(null);
         }
       } catch (error: any) {
         api.removeDownloadProgressListener();
         api.removeDownloadCompleteListener();
         setDownload(null);
-        notify(error.message || "Unable to launch ROM", "error");
+        notify(error.message || (downloadOnly ? "Unable to download ROM" : "Unable to launch ROM"), "error");
       }
     },
-    [loadInstalled, notify],
+    [clearRomStatus, loadInstalled, notify],
   );
 
   const deleteRom = useCallback(
@@ -469,11 +485,15 @@ export function App() {
     events.onSaveChoiceModal?.((data: any) => setSaveChoice(data));
     events.onEmulatorChoiceModal?.((data: any) => setEmulatorChoice(data));
     events.onRomLaunched?.((data: any) => notify(`${data?.rom?.name || "ROM"} launched`, "success"));
+    events.onSaveSyncResult?.((data: any) => {
+      notify(data?.message || (data?.success ? `Saves synced for ${data?.romName || "ROM"}` : `Save sync failed for ${data?.romName || "ROM"}`), data?.success ? "success" : "error");
+    });
 
     return () => {
       events.removeSaveChoiceListener?.();
       events.removeEmulatorChoiceListener?.();
       events.removeRomLaunchListeners?.();
+      events.removeSaveSyncResultListener?.();
     };
   }, [loadInitialData, notify, refreshShell, resetLoadingSteps, setLoadingStep]);
 
@@ -757,7 +777,7 @@ export function App() {
               setEmulatorChoice(null);
             },
           }))}
-          onClose={() => setEmulatorChoice(null)}
+          onClose={cancelEmulatorChoice}
         />
       ) : null}
 

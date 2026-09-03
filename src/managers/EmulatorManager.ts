@@ -3,7 +3,7 @@ import path from "path";
 import { spawn } from "child_process";
 
 import { RommClient } from "../RomMClient";
-import { Emulator, DolphinEmulator, PPSSPPEmulator, PCSX2Emulator, RommIntegratedEmulator, EmulatorConfig } from "./emulators";
+import { Emulator, DolphinEmulator, PPSSPPEmulator, PCSX2Emulator, AzaharEmulator, RommIntegratedEmulator, EmulatorConfig } from "./emulators";
 
 type EmulatorClass = new (config: EmulatorConfig) => Emulator;
 
@@ -57,6 +57,16 @@ let EMULATORS: Record<string, EmulatorSpec> = {
     defaultArgs: PCSX2Emulator.getDefaultArgs(),
     extensions: PCSX2Emulator.getExtensions(),
     supportsSaves: PCSX2Emulator.getSupportsSaves(),
+    path: "",
+  },
+  azahar: {
+    name: "Azahar",
+    class: AzaharEmulator,
+    platforms: AzaharEmulator.getPlatforms(),
+    rommSlug: AzaharEmulator.getRommSlug(),
+    defaultArgs: AzaharEmulator.getDefaultArgs(),
+    extensions: AzaharEmulator.getExtensions(),
+    supportsSaves: AzaharEmulator.getSupportsSaves(),
     path: "",
   },
   rommIntegrated: {
@@ -271,7 +281,7 @@ export class EmulatorManager {
   /**
    * Get save comparison for an emulator and ROM
    */
-  async getSaveComparison(emulatorKey: string, rom: any, saveDir: string): Promise<any> {
+  async getSaveComparison(emulatorKey: string, rom: any, saveDir: string, romPath?: string): Promise<any> {
     const emulator = this.getEmulatorInstance(emulatorKey);
     if (!emulator) {
       return { success: false, error: `Emulator ${emulatorKey} not configured` };
@@ -282,7 +292,7 @@ export class EmulatorManager {
     }
 
     try {
-      return await emulator.getSaveComparison(rom, saveDir, this.rommClient.rommApi, this.rommClient.saveManager);
+      return await emulator.getSaveComparison(rom, saveDir, this.rommClient.rommApi, this.rommClient.saveManager, romPath);
     } catch (error: any) {
       return { success: false, error: error.message };
     }

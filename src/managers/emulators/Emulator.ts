@@ -134,6 +134,13 @@ export abstract class Emulator {
   }
 
   /**
+   * Get the ROM extensions supported by this emulator instance.
+   */
+  public getSupportedExtensions(): string[] {
+    return [...this.extensions];
+  }
+
+  /**
    * Check if emulator is configured
    */
   public isConfigured(): boolean {
@@ -183,18 +190,40 @@ export abstract class Emulator {
 
     console.log(`Launching ${this.name}: ${emulatorPath} ${args.join(" ")}`);
 
-    // Launch emulator
-    const emulatorProcess = spawn(emulatorPath, args, {
-      detached: false,
-      stdio: "ignore",
-    });
+    return new Promise((resolve) => {
+      const emulatorProcess = spawn(emulatorPath, args, {
+        detached: false,
+        stdio: "ignore",
+      });
+      let launchResolved = false;
 
-    return {
-      success: true,
-      process: emulatorProcess,
-      message: "ROM launched",
-      pid: emulatorProcess.pid,
-    };
+      emulatorProcess.on("error", (error) => {
+        console.error(`[${this.name}] Process error: ${error.message}`);
+        if (!launchResolved) {
+          launchResolved = true;
+          resolve({
+            success: false,
+            error: `Failed to start ${this.name}: ${error.message}`,
+          });
+        }
+      });
+
+      emulatorProcess.once("spawn", () => {
+        if (launchResolved) return;
+        launchResolved = true;
+        console.log(`[${this.name}] Process started with PID ${emulatorProcess.pid}`);
+        resolve({
+          success: true,
+          process: emulatorProcess,
+          message: "ROM launched",
+          pid: emulatorProcess.pid,
+        });
+      });
+
+      emulatorProcess.once("exit", (code, signal) => {
+        console.log(`[${this.name}] Process exited with code ${code}${signal ? ` (signal: ${signal})` : ""}`);
+      });
+    });
   }
 
   /**
@@ -211,7 +240,7 @@ export abstract class Emulator {
    * Get save comparison info for user choice
    * Override in subclasses that support save choice
    */
-  public async getSaveComparison(rom: Rom, saveDir: string, rommAPI: RommApi | null, saveManager: SaveManager): Promise<SaveComparisonResult> {
+  public async getSaveComparison(rom: Rom, saveDir: string, rommAPI: RommApi | null, saveManager: SaveManager, romPath?: string): Promise<SaveComparisonResult> {
     return {
       success: true,
       data: {
@@ -230,7 +259,15 @@ export abstract class Emulator {
    */
   public async handleSaveChoice(romData: any, saveChoice: string, saveManager: SaveManager, rommAPI: RommApi | null, saveId?: number, onProgress?: ProgressCallback): Promise<SaveChoiceResult> {
     // Default implementation - just launch normally
-    return this.launch(romData.rom, romData.saveDir);
+    const launchResult = await this.launch(romData.finalRomPath, romData.saveDir);
+    return {
+      success: launchResult.success,
+      message: launchResult.message,
+      error: launchResult.error,
+      pid: launchResult.pid,
+      romPath: romData.finalRomPath,
+      saveDir: romData.saveDir,
+    };
   }
 
   /**

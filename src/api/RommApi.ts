@@ -1,4 +1,7 @@
 import fs, { readFileSync, existsSync } from "fs";
+import pathModule from "path";
+import { Transform } from "stream";
+import { pipeline } from "stream/promises";
 import type { ApiResponse, DownloadProgress, RomOptions, HeartbeatResponse, User, ConfigResponse, Platform, StatsResponse, Rom, RomDetails, RomsResponse, LocalRom } from "../types/RommApi";
 const FormData = require("form-data");
 
@@ -397,35 +400,76 @@ export class RommApi {
         }
 
         let fileCount = 0;
-        let totalFiles = toDownload.size;
+        let completedBytes = 0;
+        const totalFiles = toDownload.size;
         for (let [id, { endpoint, dest_path, rom }] of toDownload) {
-        fileCount++;
-        const client = await this.getClient();
-        const response = await client.get(endpoint, {
-          responseType: "arraybuffer",
-          onDownloadProgress: (progressEvent: any) => {
-            if (onProgress && progressEvent.total) {
-              const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-              const downloadedMB = (progressEvent.loaded / 1024 / 1024).toFixed(2);
-              const totalMB = (progressEvent.total / 1024 / 1024).toFixed(2);
+          fileCount++;
+          const client = await this.getClient();
+          const response = await client.get(endpoint, {
+            responseType: "stream",
+          });
+
+          if (response.status !== 200) {
+            response.data?.destroy?.();
+            throw new Error(`Failed to download ROM file ${id}: HTTP ${response.status}`);
+          }
+
+          await fs.promises.mkdir(pathModule.dirname(dest_path), { recursive: true });
+          const partialPath = `${dest_path}.part`;
+          let currentFileBytes = 0;
+          let lastProgressAt = 0;
+          const expectedFileBytes = Number(response.headers?.["content-length"]) || 0;
+
+          const reportProgress = (force = false) => {
+            if (onProgress) {
+              const now = Date.now();
+              if (!force && now - lastProgressAt < 100) return;
+              lastProgressAt = now;
+              const downloadedBytes = completedBytes + currentFileBytes;
+              const expectedTotalBytes = totalToDownload || completedBytes + expectedFileBytes;
+              const percent = expectedTotalBytes > 0 ? Math.min(100, Math.round((downloadedBytes * 100) / expectedTotalBytes)) : 0;
               onProgress({
                 percent,
-                downloaded: downloadedMB,
-                total: totalMB,
-                loaded: progressEvent.loaded,
-                totalBytes: progressEvent.total,
+                downloaded: (downloadedBytes / 1024 / 1024).toFixed(2),
+                total: expectedTotalBytes > 0 ? (expectedTotalBytes / 1024 / 1024).toFixed(2) : "0.00",
+                loaded: downloadedBytes,
+                totalBytes: expectedTotalBytes,
                 totalFilesNumber: totalFiles,
                 currentFileNumber: fileCount,
               });
             }
-          },
+          };
+
+          const progressStream = new Transform({
+            transform(chunk: Buffer, _encoding, callback) {
+              currentFileBytes += chunk.length;
+              reportProgress();
+              callback(null, chunk);
+            },
           });
-  
-          if (response.status !== 200) {
-            throw new Error(`Failed to download ROM file ${id}: HTTP ${response.status}`);
+
+          try {
+            await fs.promises.rm(partialPath, { force: true });
+            await pipeline(response.data, progressStream, fs.createWriteStream(partialPath));
+
+            const stats = await fs.promises.stat(partialPath);
+            if (!stats.isFile() || stats.size === 0) {
+              throw new Error(`Downloaded ROM file ${id} is empty or missing: ${partialPath}`);
+            }
+            if (expectedFileBytes > 0 && stats.size !== expectedFileBytes) {
+              throw new Error(`Downloaded ROM file ${id} is incomplete: expected ${expectedFileBytes} bytes, received ${stats.size}`);
+            }
+
+            reportProgress(true);
+            await fs.promises.rm(dest_path, { force: true });
+            await fs.promises.rename(partialPath, dest_path);
+            completedBytes += stats.size;
+          } catch (error) {
+            response.data?.destroy?.();
+            await fs.promises.rm(partialPath, { force: true });
+            throw error;
           }
 
-          await fs.promises.writeFile(dest_path, Buffer.from(response.data));
           const stats = await fs.promises.stat(dest_path);
           if (!stats.isFile() || stats.size === 0) {
             throw new Error(`Downloaded ROM file ${id} is empty or missing: ${dest_path}`);

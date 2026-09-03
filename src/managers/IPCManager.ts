@@ -656,11 +656,57 @@ export class IPCManager {
         data: romdata?.fs_size_bytes,
       };
     });
+    ipcMain.handle("roms:download", async (event, { rom }) => {
+      console.log("[IPC]" + `Downloading ROM without launching: ${rom.name} (ID: ${rom.id})`);
+
+      if (!this.rommClient.romManager) {
+        return { success: false, error: "RomManager not initialized" };
+      }
+
+      const onProgress = (progress: any) => {
+        event.sender.send("rom:download-progress", progress);
+      };
+
+      const onDownloadComplete = () => {
+        event.sender.send("rom:download-complete", { rom });
+      };
+
+      try {
+        return await this.rommClient.romManager.launchRom(rom, onProgress, () => {}, onDownloadComplete);
+      } catch (error: any) {
+        console.error("[IPC]" + `Download error: ${error.message}`);
+        return { success: false, error: error.message };
+      }
+    });
+
     // Emulator Launch with complete save flow
     ipcMain.handle("roms:launch", async (event, { rom, emulatorPath }) => {
       console.log("[IPC]" + `Launching ROM with saves flow: ${rom.name} (ID: ${rom.id})`);
 
-      if (emulatorPath === "rommIntegrated") {
+      const platformSlug = rom.platform_slug || rom.platform;
+      const availableEmulators = this.getAvailableEmulatorsForPlatform(platformSlug);
+      let selectedEmulatorKey = emulatorPath || null;
+
+      if (selectedEmulatorKey && !availableEmulators.includes(selectedEmulatorKey)) {
+        return { success: false, error: `Emulator ${selectedEmulatorKey} is not available for platform ${platformSlug}` };
+      }
+
+      if (!selectedEmulatorKey) {
+        if (availableEmulators.length === 0) {
+          return { success: false, error: `No emulator configured for platform ${platformSlug}` };
+        }
+
+        if (availableEmulators.length === 1) {
+          selectedEmulatorKey = availableEmulators[0];
+        } else {
+          selectedEmulatorKey = await this.waitForEmulatorChoice(event, rom, availableEmulators);
+          if (!selectedEmulatorKey) {
+            return { success: false, cancelled: true, error: "Launch cancelled" };
+          }
+        }
+      }
+
+      if (selectedEmulatorKey === "rommIntegrated") {
         console.log("[IPC] Launch requested with integrated emulator");
         return await this.launchWithIntegratedEmulator(rom);
       }
@@ -670,6 +716,15 @@ export class IPCManager {
         console.log("[IPC]" + `Launch progress for ROM: ${rom.name} (ID: ${rom.id}): ${JSON.stringify(progress)}`);
         console.log("[IPC] Sending rom:download-progress event to frontend");
         event.sender.send("rom:download-progress", progress);
+        if (progress?.step === "complete" || progress?.step === "error") {
+          console.log("[IPC] Sending save:sync-result event to frontend");
+          event.sender.send("save:sync-result", {
+            romId: rom.id,
+            romName: rom.name,
+            success: progress.step === "complete" && !progress.error,
+            message: progress.message,
+          });
+        }
         if (progress?.complete) {
           event.sender.send("rom:download-complete", { rom, progress });
         }
@@ -709,7 +764,7 @@ export class IPCManager {
       if (this.rommClient && this.rommClient.romManager && this.rommClient.saveManager && this.emulatorManager) {
         try {
           // Start the complete launch flow with save handling
-          const result = await this.rommClient.romManager.launchRomWithSavesFlow(rom, this.rommClient.saveManager, this.emulatorManager, onProgress, onSaveChoice);
+          const result = await this.rommClient.romManager.launchRomWithSavesFlow(rom, this.rommClient.saveManager, this.emulatorManager, onProgress, onSaveChoice, selectedEmulatorKey);
 
           if (result.success) {
             // Special handling for integrated emulator - open URL directly instead of sending event
@@ -731,7 +786,10 @@ export class IPCManager {
             });
           }
 
-          return result;
+          // ChildProcess and similar runtime objects cannot cross Electron's
+          // structured-clone IPC boundary.
+          const { process: _process, ...serializableResult } = result;
+          return serializableResult;
         } catch (error: any) {
           console.error("[IPC]" + `Launch error: ${error.message}`);
           event.sender.send("rom:launch-failed", {
@@ -844,6 +902,39 @@ export class IPCManager {
     }
 
     return availableEmulators;
+  }
+
+  /**
+   * Ask the renderer which emulator should be used when several are available.
+   */
+  private async waitForEmulatorChoice(event: any, rom: any, availableEmulators: string[]): Promise<string | null> {
+    const supportedEmulators = this.emulatorManager.getSupportedEmulators();
+    const emulatorOptions = availableEmulators.map((emulatorKey) => ({
+      key: emulatorKey,
+      name: supportedEmulators[emulatorKey].name,
+      platforms: supportedEmulators[emulatorKey].platforms,
+      supportsSaves: supportedEmulators[emulatorKey].supportsSaves,
+    }));
+
+    event.sender.send("emulator:show-choice-modal", {
+      rom,
+      emulators: emulatorOptions,
+    });
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        ipcMain.removeListener("emulator:choice-selected", handler);
+        resolve(null);
+      }, 300000);
+
+      const handler = (_event: any, result: any) => {
+        clearTimeout(timeout);
+        const selectedKey = result?.emulatorKey;
+        resolve(availableEmulators.includes(selectedKey) ? selectedKey : null);
+      };
+
+      ipcMain.once("emulator:choice-selected", handler);
+    });
   }
 
   /**

@@ -69,7 +69,11 @@ export class RommClient extends BrowserWindow {
     await this.appSettingsManager.loadSettings();
     this.settings = this.appSettingsManager.getSettings();
 
-    this.setupFolders();
+    await this.setupFolders();
+
+    if (this.romManager) {
+      await this.romManager.cleanupStalePartialDownloads();
+    }
 
     // Prevent browser navigation (including back button) from navigating away from the app
     this.webContents.on("will-navigate", (event, url) => {

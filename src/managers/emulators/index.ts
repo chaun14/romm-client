@@ -2,4 +2,5 @@ export { Emulator, EmulatorConfig, EnvironmentSetupResult, LaunchResult, SaveCom
 export { DolphinEmulator } from "./DolphinEmulator";
 export { PPSSPPEmulator } from "./PPSSPPEmulator";
 export { PCSX2Emulator } from "./PCSX2Emulator";
+export { AzaharEmulator } from "./AzaharEmulator";
 export { RommIntegratedEmulator } from "./RommIntegratedEmulator";

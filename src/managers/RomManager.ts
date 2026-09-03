@@ -10,6 +10,7 @@ import { EmulatorManager } from "./EmulatorManager";
 import { on } from "events";
 
 export class RomManager {
+  private static readonly PARTIAL_DOWNLOAD_MAX_AGE_MS = 24 * 60 * 60 * 1000;
   private roms: Rom[] = [];
   private rommClient: RommClient;
   private localRoms: LocalRom[] = [];
@@ -29,6 +30,60 @@ export class RomManager {
 
   public getLocalRomById(id: number): LocalRom | undefined {
     return this.localRoms.find((rom) => rom.id === id);
+  }
+
+  /**
+   * Remove partial downloads left behind by interrupted sessions.
+   * Cleanup is restricted to stale *.part files inside the active ROM cache.
+   */
+  async cleanupStalePartialDownloads(maxAgeMs = RomManager.PARTIAL_DOWNLOAD_MAX_AGE_MS): Promise<{ deletedCount: number; failedCount: number }> {
+    const romFolder = this.rommClient.getRomFolder();
+    if (!romFolder || !fs.existsSync(romFolder)) {
+      return { deletedCount: 0, failedCount: 0 };
+    }
+
+    const cutoffTime = Date.now() - maxAgeMs;
+    let deletedCount = 0;
+    let failedCount = 0;
+
+    const visitDirectory = async (directory: string): Promise<void> => {
+      let entries: fs.Dirent[];
+      try {
+        entries = await fs.promises.readdir(directory, { withFileTypes: true });
+      } catch (error: any) {
+        failedCount++;
+        console.warn(`[HOUSEKEEPING] Unable to inspect ${directory}: ${error.message}`);
+        return;
+      }
+
+      for (const entry of entries) {
+        const entryPath = path.join(directory, entry.name);
+        if (entry.isDirectory()) {
+          await visitDirectory(entryPath);
+          continue;
+        }
+
+        if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".part")) {
+          continue;
+        }
+
+        try {
+          const stats = await fs.promises.stat(entryPath);
+          if (stats.mtimeMs > cutoffTime) continue;
+
+          await fs.promises.unlink(entryPath);
+          deletedCount++;
+          console.log(`[HOUSEKEEPING] Deleted stale partial download: ${entryPath}`);
+        } catch (error: any) {
+          failedCount++;
+          console.warn(`[HOUSEKEEPING] Unable to delete ${entryPath}: ${error.message}`);
+        }
+      }
+    };
+
+    await visitDirectory(romFolder);
+    console.log(`[HOUSEKEEPING] Partial download cleanup complete: ${deletedCount} deleted, ${failedCount} failed`);
+    return { deletedCount, failedCount };
   }
 
   async loadRemoteRoms(): Promise<number> {
@@ -395,14 +450,15 @@ export class RomManager {
     saveManager: SaveManager,
     emulatorManager: EmulatorManager,
     onProgress: (progress: any) => void,
-    onSaveChoice?: (saveData: any) => Promise<any>
+    onSaveChoice?: (saveData: any) => Promise<any>,
+    preferredEmulatorKey?: string,
   ): Promise<any> {
     try {
       console.log("[LAUNCH FLOW] Starting complete launch flow for ROM:", rom.name);
 
       // Step 2: Find appropriate emulator for this ROM (moved up before ROM preparation)
       console.log("[LAUNCH FLOW] Finding emulator for platform:", rom.platform_slug);
-      const { emulator, emulatorKey } = this.findEmulatorForRomWithKey(rom, emulatorManager);
+      const { emulator, emulatorKey } = this.findEmulatorForRomWithKey(rom, emulatorManager, preferredEmulatorKey);
       if (!emulator) {
         throw new Error(`No emulator configured for platform: ${rom.platform_slug}`);
       }
@@ -442,6 +498,15 @@ export class RomManager {
 
       const { localRom } = launchResult;
 
+      // Resolve the actual game file before comparing saves. Emulators such as
+      // Azahar derive the game's storage identifier directly from its header.
+      const romFilePath = this.findRomFileInPath(localRom.localPath, emulator.getSupportedExtensions());
+      if (!romFilePath) {
+        throw new Error("Could not find ROM file in directory");
+      }
+
+      console.log("[LAUNCH FLOW] ROM file path:", romFilePath);
+
       // Step 3: Setup save directory
       const savesFolder = this.rommClient.getSavesFolder();
       if (!savesFolder) {
@@ -473,7 +538,7 @@ export class RomManager {
       // Step 5: Check for available saves (local and cloud)
       console.log("[LAUNCH FLOW] Checking available saves...");
 
-      const saveComparison = await emulator.getSaveComparison(rom, tempSaveDir, this.rommClient.rommApi, this.rommClient.saveManager);
+      const saveComparison = await emulator.getSaveComparison(rom, tempSaveDir, this.rommClient.rommApi, this.rommClient.saveManager, romFilePath);
       if (!saveComparison.success) {
         throw new Error(`Failed to check saves: ${saveComparison.error}`);
       }
@@ -489,10 +554,11 @@ export class RomManager {
       let localSaveDate: string | null = null;
       if (saveData.hasLocal) {
         try {
-          // Use the persistent save directory from SaveManager instead of emulator temp directory
-          const persistentSaveDir = saveManager.getLocalSaveDir(rom);
-          if (fs.existsSync(persistentSaveDir)) {
-            const stats = fs.statSync(persistentSaveDir);
+          // Use the source reported by the emulator. This also covers a
+          // one-time import from an emulator's pre-existing save directory.
+          const localSaveSource = saveData.localSaveDir || saveManager.getLocalSaveDir(rom);
+          if (fs.existsSync(localSaveSource)) {
+            const stats = fs.statSync(localSaveSource);
             localSaveDate = new Date(stats.mtime).toISOString();
           }
         } catch (error) {
@@ -554,14 +620,6 @@ export class RomManager {
         }
       }
 
-      // Step 7: Get the ROM file path
-      const romFilePath = this.findRomFileInPath(localRom.localPath);
-      if (!romFilePath) {
-        throw new Error("Could not find ROM file in directory");
-      }
-
-      console.log("[LAUNCH FLOW] ROM file path:", romFilePath);
-
       let finalLaunchResult: any;
 
       // Always use handleSaveChoice for consistency - it handles save preparation and launching
@@ -611,8 +669,22 @@ export class RomManager {
    * Find the appropriate emulator for a ROM based on platform
    * Returns both the emulator instance and its key
    */
-  private findEmulatorForRomWithKey(rom: Rom, emulatorManager: EmulatorManager): { emulator: any; emulatorKey: string } | { emulator: null; emulatorKey: string } {
+  private findEmulatorForRomWithKey(rom: Rom, emulatorManager: EmulatorManager, preferredEmulatorKey?: string): { emulator: any; emulatorKey: string } | { emulator: null; emulatorKey: string } {
     const supportedEmulators = emulatorManager.getSupportedEmulators();
+
+    if (preferredEmulatorKey) {
+      const spec = supportedEmulators[preferredEmulatorKey];
+      if (!spec || !spec.platforms.includes(rom.platform_slug)) {
+        return { emulator: null, emulatorKey: "" };
+      }
+
+      const preferredEmulator = emulatorManager.getEmulator(preferredEmulatorKey);
+      if (preferredEmulator?.isConfigured()) {
+        return { emulator: preferredEmulator, emulatorKey: preferredEmulatorKey };
+      }
+
+      return { emulator: null, emulatorKey: "" };
+    }
 
     for (const [key, spec] of Object.entries(supportedEmulators)) {
       if (spec.platforms.includes(rom.platform_slug)) {
@@ -647,9 +719,8 @@ export class RomManager {
   /**
    * Find the first ROM file in a directory
    */
-  private findRomFileInPath(dirPath: string): string | null {
-    // Common ROM file extensions
-    const romExtensions = [".iso", ".cso", ".pbp", ".elf", ".gcm", ".iso", ".wbfs", ".bin"];
+  private findRomFileInPath(dirPath: string, supportedExtensions: string[]): string | null {
+    const romExtensions = supportedExtensions.map((extension) => extension.toLowerCase());
 
     if (!fs.existsSync(dirPath)) {
       return null;

@@ -1657,6 +1657,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         showNotification(`Save uploaded successfully for "${data.romName}"`, 'success');
     });
 
+    window.electronEvents.removeSaveSyncResultListener?.();
+    window.electronEvents.onSaveSyncResult?.((data) => {
+        const message = data.message || (data.success ? `Saves synced for "${data.romName}"` : `Save sync failed for "${data.romName}"`);
+        showNotification(message, data.success ? 'success' : 'error');
+    });
+
     // Setup update event listeners
     setupUpdateListeners();
 
@@ -2174,6 +2180,7 @@ function setupModalHandlers() {
     const emulatorChoiceCancel = document.getElementById('emulator-choice-cancel');
     if (emulatorChoiceCancel) {
         emulatorChoiceCancel.addEventListener('click', () => {
+            window.electronEvents.sendEmulatorChoice('cancel', null);
             document.getElementById('emulator-choice-modal').classList.remove('show');
         });
     }

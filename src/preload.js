@@ -57,6 +57,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
         fetchLocal: () => ipcRenderer.invoke('roms:fetch-local'),
         search: (query, platformId, limit, offset) => ipcRenderer.invoke('roms:search', query, platformId, limit, offset),
         getByPlatform: (platform, limit = null, offset = 0) => ipcRenderer.invoke('roms:get-by-platform', { platform, limit, offset }),
+        download: (rom) => ipcRenderer.invoke('roms:download', { rom }),
         launch: (rom, emulatorPath) =>
             ipcRenderer.invoke('roms:launch', { rom, emulatorPath }),
         getNoCacheMode: () => ipcRenderer.invoke('roms:noCachedMode')
@@ -166,6 +167,12 @@ contextBridge.exposeInMainWorld('electronEvents', {
     },
     removeSaveUploadSuccessListener: () => {
         ipcRenderer.removeAllListeners('save:upload-success');
+    },
+    onSaveSyncResult: (callback) => {
+        ipcRenderer.on('save:sync-result', (event, data) => callback(data));
+    },
+    removeSaveSyncResultListener: () => {
+        ipcRenderer.removeAllListeners('save:sync-result');
     },
 
     // Save choice modal events
