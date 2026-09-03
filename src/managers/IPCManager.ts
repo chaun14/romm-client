@@ -1,4 +1,4 @@
-import { app, ipcMain, BrowserWindow, shell } from "electron";
+import { app, ipcMain, BrowserWindow, dialog, shell } from "electron";
 import fs from "fs";
 import path from "path";
 import { RommClient } from "../RomMClient";
@@ -432,10 +432,34 @@ export class IPCManager {
       return { success: true, data: this.emulatorManager.getSupportedEmulators() };
     });
 
+    ipcMain.handle("emulator:select-executable", async () => {
+      try {
+        const options: Electron.OpenDialogOptions = {
+          title: "Select emulator executable",
+          properties: ["openFile"],
+        };
+
+        if (process.platform === "win32") {
+          options.filters = [
+            { name: "Applications", extensions: ["exe"] },
+            { name: "All files", extensions: ["*"] },
+          ];
+        }
+
+        const result = await dialog.showOpenDialog(this.rommClient, options);
+        if (result.canceled || result.filePaths.length === 0) {
+          return { success: false, canceled: true };
+        }
+
+        return { success: true, data: result.filePaths[0] };
+      } catch (error: any) {
+        return { success: false, error: error.message || "Unable to open the file picker" };
+      }
+    });
+
     ipcMain.handle("emulator:saveConfig", async (event, { emulatorKey, path }) => {
       console.log("[IPC]" + `Saving config for emulator: ${emulatorKey}`);
-      this.emulatorManager.saveConfiguration(emulatorKey, path);
-      return { success: true };
+      return this.emulatorManager.saveConfiguration(emulatorKey, path);
     });
 
     ipcMain.handle("emulator:unregister", async (event, emulatorKey) => {

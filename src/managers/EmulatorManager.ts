@@ -1,6 +1,5 @@
 import fs from "fs";
 import path from "path";
-import { spawn } from "child_process";
 
 import { RommClient } from "../RomMClient";
 import { Emulator, DolphinEmulator, PPSSPPEmulator, PCSX2Emulator, AzaharEmulator, RommIntegratedEmulator, EmulatorConfig } from "./emulators";
@@ -146,10 +145,38 @@ export class EmulatorManager {
     return configs;
   }
 
-  saveConfiguration(emulatorKey: string, path: string): void {
-    if (!path.trim()) {
-      this.unregisterConfiguration(emulatorKey);
-      return;
+  async saveConfiguration(emulatorKey: string, executablePath: string): Promise<{ success: boolean; error?: string }> {
+    if (emulatorKey === "rommIntegrated") {
+      return { success: false, error: "Integrated emulator configuration cannot be changed" };
+    }
+
+    if (!this.supportedEmulators[emulatorKey]) {
+      return { success: false, error: `Unknown emulator: ${emulatorKey}` };
+    }
+
+    const normalizedPath = typeof executablePath === "string" ? executablePath.trim() : "";
+    if (!normalizedPath) {
+      return await this.unregisterConfiguration(emulatorKey);
+    }
+
+    try {
+      const stats = await fs.promises.stat(normalizedPath);
+      if (!stats.isFile()) {
+        return { success: false, error: "The selected emulator path is not a file" };
+      }
+
+      if (process.platform !== "win32") {
+        await fs.promises.access(normalizedPath, fs.constants.X_OK);
+      }
+    } catch (error: any) {
+      if (process.platform !== "win32" && error?.code === "EACCES") {
+        return {
+          success: false,
+          error: "The selected file is not executable. Grant execute permission (chmod +x) and try again.",
+        };
+      }
+
+      return { success: false, error: "The selected emulator executable does not exist or cannot be accessed" };
     }
 
     if (!this.rommClient.settings.emulators) {
@@ -159,19 +186,20 @@ export class EmulatorManager {
     // Find existing emulator config or create new one
     const existingIndex = this.rommClient.settings.emulators.findIndex((e) => e.name === emulatorKey);
     if (existingIndex >= 0) {
-      this.rommClient.settings.emulators[existingIndex].path = path;
+      this.rommClient.settings.emulators[existingIndex].path = normalizedPath;
     } else {
-      this.rommClient.settings.emulators.push({ name: emulatorKey, path: path });
+      this.rommClient.settings.emulators.push({ name: emulatorKey, path: normalizedPath });
     }
 
-    // Save to settings manager
-    this.rommClient.appSettingsManager.setSetting("emulators", this.rommClient.settings.emulators);
-    this.rommClient.appSettingsManager.saveSettings();
+    this.rommClient.appSettingsManager.updateSettings({ emulators: this.rommClient.settings.emulators });
+    await this.rommClient.appSettingsManager.saveSettings();
 
-    console.log("EmulatorManager: saved configuration for", emulatorKey, "path:", path);
+    delete this.emulatorInstances[emulatorKey];
+    console.log("EmulatorManager: saved configuration for", emulatorKey, "path:", normalizedPath);
+    return { success: true };
   }
 
-  unregisterConfiguration(emulatorKey: string): { success: boolean; error?: string } {
+  async unregisterConfiguration(emulatorKey: string): Promise<{ success: boolean; error?: string }> {
     if (emulatorKey === "rommIntegrated") {
       return { success: false, error: "Integrated emulator cannot be unregistered" };
     }
@@ -183,8 +211,8 @@ export class EmulatorManager {
     this.rommClient.settings.emulators = (this.rommClient.settings.emulators || []).filter((emulator) => emulator.name !== emulatorKey);
     delete this.emulatorInstances[emulatorKey];
 
-    this.rommClient.appSettingsManager.setSetting("emulators", this.rommClient.settings.emulators);
-    this.rommClient.appSettingsManager.saveSettings();
+    this.rommClient.appSettingsManager.updateSettings({ emulators: this.rommClient.settings.emulators });
+    await this.rommClient.appSettingsManager.saveSettings();
 
     console.log("EmulatorManager: unregistered configuration for", emulatorKey);
     return { success: true };

@@ -74,6 +74,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
         configureEmulator: (emulatorKey, emulatorPath) =>
             ipcRenderer.invoke('emulator:configure-emulator', { emulatorKey, emulatorPath }),
         getConfigs: () => ipcRenderer.invoke('emulator:get-configs'),
+        selectExecutable: () => ipcRenderer.invoke('emulator:select-executable'),
         saveConfig: (emulatorKey, path) => ipcRenderer.invoke('emulator:saveConfig', { emulatorKey, path }),
         unregister: (emulatorKey) => ipcRenderer.invoke('emulator:unregister', emulatorKey),
         isPlatformSupported: (platform) => ipcRenderer.invoke('emulator:is-platform-supported', platform),

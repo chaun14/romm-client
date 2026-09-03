@@ -713,6 +713,13 @@ export function App() {
               emulators={emulators}
               configs={emulatorConfigs}
               onRefresh={loadEmulators}
+              onBrowse={async () => {
+                const result = await api.emulator.selectExecutable();
+                if (!result.success && !result.canceled) {
+                  notify(result.error || "Unable to select emulator executable", "error");
+                }
+                return result.success ? result.data : null;
+              }}
               onSave={async (key, value) => {
                 const result = await api.emulator.saveConfig(key, value);
                 if (result.success) {

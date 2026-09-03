@@ -1,4 +1,4 @@
-import { CheckCircle2, RefreshCw, Settings, Trash2 } from "lucide-react";
+import { CheckCircle2, FolderOpen, RefreshCw, Settings, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { LoadingState } from "../common/States";
 import { HeaderActions, IconButton } from "../layout/HeaderActions";
@@ -8,6 +8,7 @@ export function EmulatorsView({
   emulators,
   configs,
   onRefresh,
+  onBrowse,
   onSave,
   onConfigure,
   onUnregister,
@@ -16,6 +17,7 @@ export function EmulatorsView({
   emulators: Record<string, any>;
   configs: Record<string, any>;
   onRefresh: () => void;
+  onBrowse: () => Promise<string | null>;
   onSave: (key: string, value: string) => void;
   onConfigure: (key: string, value: string) => void;
   onUnregister: (key: string) => void;
@@ -66,6 +68,21 @@ export function EmulatorsView({
                 />
                 {key !== "rommIntegrated" ? (
                   <button
+                    className="flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm text-slate-200 hover:border-brand"
+                    title="Browse for emulator executable"
+                    onClick={async () => {
+                      const selectedPath = await onBrowse();
+                      if (selectedPath) {
+                        setDrafts((current) => ({ ...current, [key]: selectedPath }));
+                      }
+                    }}
+                  >
+                    <FolderOpen className="h-4 w-4" />
+                    Browse
+                  </button>
+                ) : null}
+                {key !== "rommIntegrated" ? (
+                  <button
                     className="flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm text-slate-200 hover:border-brand disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={!canConfigure}
                     onClick={() => onConfigure(key, draftPath)}
@@ -74,9 +91,11 @@ export function EmulatorsView({
                     Configure
                   </button>
                 ) : null}
-                <button className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-[#4f46e5]" onClick={() => onSave(key, drafts[key] || "")}>
-                  Save
-                </button>
+                {key !== "rommIntegrated" ? (
+                  <button className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-[#4f46e5]" onClick={() => onSave(key, drafts[key] || "")}>
+                    Save
+                  </button>
+                ) : null}
                 {canUnregister ? (
                   <button
                     className="rounded-md border border-line px-3 py-2 text-slate-300 hover:border-rose-400 hover:text-rose-200"

@@ -2,6 +2,7 @@
   "name": "romm-client",
   "version": "1.1.0",
   "description": "Electron app that plugs into the RomM API to provide a desktop experience",
+  "desktopName": "fr.chaun14.rommclient.desktop",
   "main": "./out/main.js",
   "scripts": {
     "start": "npm run build && electron .",
@@ -15,7 +16,9 @@
     "dist:win": "npm run build && electron-builder --win",
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:linux": "npm run build && electron-builder --linux",
-    "publish": "npm run build && electron-builder --win --publish always"
+    "publish": "npm run publish:win",
+    "publish:win": "npm run build && electron-builder --win --publish always",
+    "publish:linux": "npm run build && electron-builder --linux --publish always"
   },
   "keywords": [
     "romm",
@@ -80,7 +83,12 @@
       "target": "dmg"
     },
     "linux": {
-      "target": "AppImage"
+      "target": "AppImage",
+      "category": "Game",
+      "icon": "src/renderer/assets/imgs/icon.png",
+      "executableName": "romm-client",
+      "syncDesktopName": true,
+      "artifactName": "RomMClient-${version}-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,

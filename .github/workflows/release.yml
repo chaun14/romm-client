@@ -7,7 +7,18 @@ on:
 
 jobs:
   release:
-    runs-on: windows-latest
+    name: Release ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Windows
+            os: windows-latest
+            publish_script: publish:win
+          - platform: Linux
+            os: ubuntu-latest
+            publish_script: publish:linux
 
     steps:
       - name: Checkout code
@@ -19,9 +30,9 @@ jobs:
           node-version: "24"
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Build and publish
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: npm run publish
+        run: npm run ${{ matrix.publish_script }}
