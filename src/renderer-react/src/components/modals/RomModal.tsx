@@ -21,7 +21,7 @@ export function RomModal({
   onLaunchIntegrated: () => void;
   onOpenInRomm: () => void;
 }) {
-  const cover = buildImageUrl(rom.path_cover_big || rom.path_cover_large || rom.path_cover_small || rom.url_cover, baseUrl);
+  const cover = buildImageUrl(rom.localCoverUrl || rom.path_cover_big || rom.path_cover_large || rom.path_cover_small || rom.url_cover, baseUrl);
   const [expandedCover, setExpandedCover] = useState(false);
 
   return (

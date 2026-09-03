@@ -476,6 +476,17 @@ export class IPCManager {
           return { success: false, error: "Image URL is required" };
         }
 
+        if (imageUrl.startsWith("romm-local-cover://")) {
+          const parsedUrl = new URL(imageUrl);
+          const romId = Number.parseInt(parsedUrl.hostname, 10);
+          if (!Number.isInteger(romId) || romId <= 0 || !this.rommClient.romManager) {
+            return { success: false, error: "Invalid local cover URL" };
+          }
+
+          const dataUrl = await this.rommClient.romManager.getLocalCoverDataUrl(romId);
+          return dataUrl ? { success: true, data: dataUrl } : { success: false, error: "Local cover not found" };
+        }
+
         const baseUrl = this.rommClient.rommApi?.getBaseUrl() || this.rommClient.settings.baseUrl;
         if (!baseUrl) {
           return { success: false, error: "RomM base URL not configured" };

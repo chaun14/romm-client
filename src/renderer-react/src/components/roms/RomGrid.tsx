@@ -50,7 +50,7 @@ export function RomGrid({
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">
       {roms.map((rom) => {
-        const cover = buildImageUrl(rom.path_cover_small || rom.url_cover, baseUrl);
+        const cover = buildImageUrl(rom.localCoverUrl || rom.path_cover_small || rom.url_cover, baseUrl);
         return (
           <article
             key={rom.id}

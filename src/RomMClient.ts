@@ -73,6 +73,8 @@ export class RommClient extends BrowserWindow {
 
     if (this.romManager) {
       await this.romManager.cleanupStalePartialDownloads();
+      const localRomCount = await this.romManager.loadLocalRoms();
+      console.log(`Loaded ${localRomCount} local ROMs from persisted metadata before authentication`);
     }
 
     // Prevent browser navigation (including back button) from navigating away from the app

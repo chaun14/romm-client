@@ -31,6 +31,7 @@ export type Rom = {
   path_cover_big?: string;
   path_cover_large?: string;
   url_cover?: string;
+  localCoverUrl?: string;
   summary?: string;
   isCached?: boolean;
   hasSaves?: boolean;

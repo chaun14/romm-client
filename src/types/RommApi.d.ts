@@ -321,6 +321,7 @@ export interface Rom {
 export interface LocalRom extends Rom {
   localPath: string;
   localFiles?: string[];
+  localCoverUrl?: string;
 }
 
 export interface RomUserSave {

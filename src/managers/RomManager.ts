@@ -9,11 +9,30 @@ import { SaveManager } from "./SaveManager";
 import { EmulatorManager } from "./EmulatorManager";
 import { on } from "events";
 
+type AxiosStatic = {
+  get: (url: string, options?: any) => Promise<any>;
+};
+
+const axiosPromise: Promise<AxiosStatic> = import("axios").then((module) => (module as { default: AxiosStatic }).default);
+
+interface LocalRomManifest {
+  /** Every entry comes from /api/roms/{id}, never from the library list. */
+  version: 1;
+  entrySource: "/api/roms/{id}";
+  updatedAt: string;
+  roms: Rom[];
+}
+
 export class RomManager {
   private static readonly PARTIAL_DOWNLOAD_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+  private static readonly LOCAL_ROM_MANIFEST_FILE = "local-roms.json";
+  private static readonly LOCAL_COVER_DIRECTORY = ".metadata/covers";
+  private static readonly LOCAL_COVER_MAX_BYTES = 20 * 1024 * 1024;
   private roms: Rom[] = [];
   private rommClient: RommClient;
   private localRoms: LocalRom[] = [];
+  private detailedMetadataRomIds = new Set<number>();
+  private coverDownloadPromises = new Map<number, Promise<string | undefined>>();
   public noCacheMode: boolean = false;
 
   constructor(rommClient: RommClient) {
@@ -30,6 +49,183 @@ export class RomManager {
 
   public getLocalRomById(id: number): LocalRom | undefined {
     return this.localRoms.find((rom) => rom.id === id);
+  }
+
+  private getLocalRomManifestPath(): string {
+    const romFolder = this.rommClient.getRomFolder();
+    if (!romFolder) throw new Error("ROM folder not set");
+    return path.join(romFolder, RomManager.LOCAL_ROM_MANIFEST_FILE);
+  }
+
+  private getLocalCoverPath(romId: number): string {
+    const romFolder = this.rommClient.getRomFolder();
+    if (!romFolder) throw new Error("ROM folder not set");
+    return path.join(romFolder, RomManager.LOCAL_COVER_DIRECTORY, `${romId}.image`);
+  }
+
+  private getLocalCoverUrl(romId: number): string {
+    return `romm-local-cover://${romId}`;
+  }
+
+  private getCoverSource(rom: Rom): string | undefined {
+    const coverRom = rom as Rom & { path_cover_big?: string };
+    return coverRom.path_cover_big || rom.path_cover_large || rom.path_cover_small || rom.url_cover || undefined;
+  }
+
+  private getImageMimeType(data: Buffer): string | null {
+    if (data.length >= 8 && data.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
+    if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) return "image/jpeg";
+    if (data.length >= 6 && (data.subarray(0, 6).toString("ascii") === "GIF87a" || data.subarray(0, 6).toString("ascii") === "GIF89a")) return "image/gif";
+    if (data.length >= 12 && data.subarray(0, 4).toString("ascii") === "RIFF" && data.subarray(8, 12).toString("ascii") === "WEBP") return "image/webp";
+    if (data.length >= 12 && data.subarray(4, 8).toString("ascii") === "ftyp" && ["avif", "avis"].includes(data.subarray(8, 12).toString("ascii"))) return "image/avif";
+    return null;
+  }
+
+  private async downloadLocalCover(rom: Rom, source: string): Promise<string | undefined> {
+    const baseUrl = this.rommClient.rommApi?.getBaseUrl() || this.rommClient.settings.baseUrl;
+    if (!baseUrl) return undefined;
+
+    const absoluteUrl = new URL(source, baseUrl).toString();
+    const headers = new URL(absoluteUrl).origin === new URL(baseUrl).origin ? this.rommClient.rommApi?.getAuthHeaders() || {} : {};
+    const axios = await axiosPromise;
+    const response = await axios.get(absoluteUrl, {
+      responseType: "arraybuffer",
+      headers,
+      maxContentLength: RomManager.LOCAL_COVER_MAX_BYTES,
+      maxBodyLength: RomManager.LOCAL_COVER_MAX_BYTES,
+    });
+    const data = Buffer.from(response.data);
+    if (data.length > RomManager.LOCAL_COVER_MAX_BYTES) throw new Error("image exceeds the 20 MB cache limit");
+    if (!this.getImageMimeType(data)) throw new Error("server response is not a supported image");
+
+    const coverPath = this.getLocalCoverPath(rom.id);
+    const temporaryPath = `${coverPath}.${process.pid}-${Date.now()}.tmp`;
+    await fs.promises.mkdir(path.dirname(coverPath), { recursive: true });
+    try {
+      await fs.promises.writeFile(temporaryPath, data);
+      await fs.promises.rename(temporaryPath, coverPath);
+    } catch (error) {
+      await fs.promises.rm(temporaryPath, { force: true }).catch(() => undefined);
+      throw error;
+    }
+
+    console.log(`[ROM MANAGER] Cached cover for local ROM ${rom.id}`);
+    return this.getLocalCoverUrl(rom.id);
+  }
+
+  private async ensureLocalCover(rom: Rom): Promise<string | undefined> {
+    const coverPath = this.getLocalCoverPath(rom.id);
+    try {
+      const stats = await fs.promises.stat(coverPath);
+      if (stats.isFile() && stats.size > 0) return this.getLocalCoverUrl(rom.id);
+    } catch (error: any) {
+      if (error.code !== "ENOENT") console.warn(`[ROM MANAGER] Could not inspect cached cover for ROM ${rom.id}: ${error.message}`);
+    }
+
+    const source = this.getCoverSource(rom);
+    if (!source || !this.rommClient.rommApi) return undefined;
+
+    const existingDownload = this.coverDownloadPromises.get(rom.id);
+    if (existingDownload) return existingDownload;
+
+    const download = this.downloadLocalCover(rom, source).catch((error: any) => {
+      console.warn(`[ROM MANAGER] Could not cache cover for ROM ${rom.id}: ${error.message}`);
+      return undefined;
+    });
+    this.coverDownloadPromises.set(rom.id, download);
+    try {
+      return await download;
+    } finally {
+      if (this.coverDownloadPromises.get(rom.id) === download) this.coverDownloadPromises.delete(rom.id);
+    }
+  }
+
+  public async getLocalCoverDataUrl(romId: number): Promise<string | null> {
+    if (!Number.isInteger(romId) || romId <= 0) return null;
+    try {
+      const data = await fs.promises.readFile(this.getLocalCoverPath(romId));
+      const mimeType = this.getImageMimeType(data);
+      if (!mimeType) return null;
+      return `data:${mimeType};base64,${data.toString("base64")}`;
+    } catch (error: any) {
+      if (error.code !== "ENOENT") console.warn(`[ROM MANAGER] Could not read cached cover for ROM ${romId}: ${error.message}`);
+      return null;
+    }
+  }
+
+  private async loadLocalRomManifest(): Promise<LocalRomManifest | null> {
+    const manifestPath = this.getLocalRomManifestPath();
+    try {
+      const manifest = JSON.parse(await fs.promises.readFile(manifestPath, "utf8")) as Partial<LocalRomManifest>;
+      if (manifest.version !== 1 || manifest.entrySource !== "/api/roms/{id}" || !Array.isArray(manifest.roms)) {
+        throw new Error("unsupported or invalid manifest format");
+      }
+
+      const roms = manifest.roms.filter((rom): rom is Rom => Boolean(rom && Number.isInteger(rom.id) && rom.platform_slug));
+      for (const rom of roms) this.detailedMetadataRomIds.add(rom.id);
+      console.log(`[ROM MANAGER] Loaded ${roms.length} detailed ROM metadata entries from ${manifestPath}`);
+      return {
+        version: 1,
+        entrySource: "/api/roms/{id}",
+        updatedAt: typeof manifest.updatedAt === "string" ? manifest.updatedAt : "",
+        roms,
+      };
+    } catch (error: any) {
+      if (error.code !== "ENOENT") {
+        console.warn(`[ROM MANAGER] Could not load local ROM metadata from ${manifestPath}: ${error.message}`);
+      }
+      return null;
+    }
+  }
+
+  private rememberRomMetadata(rom: Rom): void {
+    const index = this.roms.findIndex((candidate) => candidate.id === rom.id);
+    if (index >= 0) this.roms[index] = rom;
+    else this.roms.push(rom);
+  }
+
+  private async fetchDetailedRomMetadata(romId: number): Promise<Rom | null> {
+    if (!this.rommClient.rommApi) return null;
+    const response = await this.rommClient.rommApi.fetchRomById(romId);
+    if (!response.success || !response.data) {
+      console.warn(`[ROM MANAGER] Could not refresh detailed metadata for local ROM ${romId}: ${response.error || "unknown error"}`);
+      return null;
+    }
+
+    const rom = response.data as Rom;
+    this.detailedMetadataRomIds.add(rom.id);
+    this.rememberRomMetadata(rom);
+    return rom;
+  }
+
+  private async saveLocalRomManifest(): Promise<void> {
+    const manifestPath = this.getLocalRomManifestPath();
+    const temporaryPath = `${manifestPath}.${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.tmp`;
+    const roms = this.localRoms
+      .filter((rom) => this.detailedMetadataRomIds.has(rom.id))
+      .map(({ localPath: _localPath, localFiles: _localFiles, localCoverUrl: _localCoverUrl, ...rom }) => rom as Rom);
+    const manifest: LocalRomManifest = {
+      version: 1,
+      entrySource: "/api/roms/{id}",
+      updatedAt: new Date().toISOString(),
+      roms,
+    };
+
+    try {
+      await fs.promises.writeFile(temporaryPath, JSON.stringify(manifest, null, 2), "utf8");
+      try {
+        await fs.promises.rename(temporaryPath, manifestPath);
+      } catch (error: any) {
+        // Windows may refuse to replace an existing destination with rename.
+        if (error.code !== "EEXIST" && error.code !== "EPERM") throw error;
+        await fs.promises.rm(manifestPath, { force: true });
+        await fs.promises.rename(temporaryPath, manifestPath);
+      }
+      console.log(`[ROM MANAGER] Stored detailed metadata for ${roms.length} local ROMs in ${manifestPath}`);
+    } catch (error: any) {
+      await fs.promises.rm(temporaryPath, { force: true }).catch(() => undefined);
+      console.warn(`[ROM MANAGER] Could not persist local ROM metadata: ${error.message}`);
+    }
   }
 
   /**
@@ -122,6 +318,11 @@ export class RomManager {
 
         // Remove from local ROMs list
         this.localRoms = this.localRoms.filter((rom) => rom.id !== id);
+        this.detailedMetadataRomIds.delete(id);
+        await fs.promises.rm(this.getLocalCoverPath(id), { force: true }).catch((error: any) => {
+          console.warn(`[ROM MANAGER] Could not delete cached cover for ROM ${id}: ${error.message}`);
+        });
+        await this.saveLocalRomManifest();
         return { success: true };
       } catch (error: any) {
         console.error(`[ROM MANAGER] Failed to delete local ROM: ${localRom.localPath}`, error);
@@ -150,6 +351,17 @@ export class RomManager {
     const romFolder = this.rommClient.getRomFolder();
     if (!romFolder) throw new Error("ROM folder not set");
     this.localRoms = [];
+    const storedManifest = await this.loadLocalRomManifest();
+    const storedRoms = storedManifest?.roms || [];
+    const knownRoms = new Map<number, Rom>();
+    // Prefer stored detailed objects to the lightweight list response. A
+    // successful detail request below will replace both with fresh data.
+    for (const rom of this.roms) knownRoms.set(rom.id, rom);
+    for (const rom of storedRoms) {
+      knownRoms.set(rom.id, rom);
+      if (!this.roms.some((candidate) => candidate.id === rom.id)) this.roms.push(rom);
+    }
+
     const platformFolders = await fs.promises.readdir(romFolder, { withFileTypes: true });
     for (const dirent of platformFolders) {
       if (dirent.isDirectory()) {
@@ -165,19 +377,22 @@ export class RomManager {
         for (const romDirent of romDirs) {
           if (romDirent.isDirectory() && romDirent.name.startsWith("rom_")) {
             const romId = romDirent.name.replace("rom_", "");
-            let rom = this.roms.find((r) => r.id.toString() === romId);
+            const numericRomId = Number.parseInt(romId, 10);
+            if (!Number.isInteger(numericRomId)) continue;
+            let rom = knownRoms.get(numericRomId);
 
-            // if we don't have a matching rom in the cache, we try to fetch the rom by hand
+            // When RomM is available, always persist the detailed endpoint
+            // object rather than the lightweight library-list representation.
+            if (this.rommClient.rommApi) {
+              const detailedRom = await this.fetchDetailedRomMetadata(numericRomId);
+              if (detailedRom) {
+                rom = detailedRom;
+                knownRoms.set(rom.id, rom);
+              }
+            }
+
             if (!rom) {
-              console.log(`[ROM MANAGER] ROM not found in cache, fetching by ID: ${romId}`);
-              let remoteRom = await this.rommClient.rommApi?.fetchRomById(parseInt(romId));
-              if (remoteRom && remoteRom.success && remoteRom.data) {
-                rom = remoteRom.data;
-              }
-
-              if (rom) {
-                this.roms.push(rom);
-              }
+              console.warn(`[ROM MANAGER] No stored metadata available for local ROM ${romId}`);
             }
 
             if (rom) {
@@ -195,10 +410,12 @@ export class RomManager {
                 continue;
               }
 
+              const localCoverUrl = await this.ensureLocalCover(rom);
               const localRom: LocalRom = {
                 ...rom,
                 localPath: romPath,
                 localFiles: files.map((f) => path.join(romPath, f)),
+                ...(localCoverUrl ? { localCoverUrl } : {}),
               };
               this.localRoms.push(localRom);
             }
@@ -206,11 +423,8 @@ export class RomManager {
         }
       }
     }
+    await this.saveLocalRomManifest();
     return this.localRoms.length;
-  }
-
-  private saveRoms(): void {
-    // Save ROMs to storage (e.g., file system, database)
   }
 
   private async ensureDirectory(dirPath: string, label: string): Promise<void> {
@@ -370,10 +584,12 @@ export class RomManager {
       }
       localRom = this.localRoms.find((r) => r.id === rom.id);
       if (!localRom) {
-        (rom as LocalRom).localPath = romEmulatorPath;
-        (rom as LocalRom).localFiles = files.map((f) => path.join(romEmulatorPath, f));
-        this.localRoms.push(rom as LocalRom);
-        localRom = rom as LocalRom;
+        localRom = {
+          ...rom,
+          localPath: romEmulatorPath,
+          localFiles: files.map((f) => path.join(romEmulatorPath, f)),
+        };
+        this.localRoms.push(localRom);
       } else {
         localRom.localPath = romEmulatorPath;
         localRom.localFiles = files.map((f) => path.join(romEmulatorPath, f));
@@ -432,6 +648,19 @@ export class RomManager {
         throw new Error("Downloaded ROM is invalid");
       } else {
         console.log("[LAUNCH]" + `Downloaded ROM is valid: ${localRom!.name} (ID: ${localRom!.id})`);
+        const detailedRom = await this.fetchDetailedRomMetadata(rom.id);
+        if (detailedRom) {
+          const localRomIndex = this.localRoms.findIndex((candidate) => candidate.id === rom.id);
+          localRom = {
+            ...detailedRom,
+            localPath: localRom!.localPath,
+            localFiles: localRom!.localFiles,
+          };
+          if (localRomIndex >= 0) this.localRoms[localRomIndex] = localRom;
+        }
+        const localCoverUrl = await this.ensureLocalCover(localRom!);
+        if (localCoverUrl) localRom!.localCoverUrl = localCoverUrl;
+        await this.saveLocalRomManifest();
         if (onDownloadComplete) {
           onDownloadComplete(rom);
         }

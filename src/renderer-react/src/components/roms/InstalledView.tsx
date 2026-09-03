@@ -82,7 +82,7 @@ function InstalledList(props: Pick<InstalledViewProps, "roms" | "baseUrl" | "onO
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4">
       {props.roms.map((rom) => {
-        const cover = buildImageUrl(rom.path_cover_small || rom.url_cover, props.baseUrl);
+        const cover = buildImageUrl(rom.localCoverUrl || rom.path_cover_small || rom.url_cover, props.baseUrl);
         const lastSaveDate = formatDateTime(rom.lastSaveDate);
         return (
           <article
