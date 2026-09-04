@@ -1,4 +1,4 @@
-import { execFile, spawn } from "child_process";
+import { execFile } from "child_process";
 import fs from "fs/promises";
 import fsSync from "fs";
 import os from "os";
@@ -8,6 +8,7 @@ import AdmZip from "adm-zip";
 import { RommApi } from "../../api/RommApi";
 import { Rom } from "../../types/RommApi";
 import { SaveManager } from "../SaveManager";
+import { createExternalProcessEnv } from "../../utils/ExternalProcess";
 import {
   Emulator,
   EmulatorConfig,
@@ -248,7 +249,7 @@ export class AzaharEmulator extends Emulator {
 
       const preparedArgs = this.prepareArgs(finalRomPath, saveDir);
       console.log(`Launching Azahar: ${this.getExecutablePath()} ${preparedArgs.join(" ")}`);
-      const emulatorProcess = spawn(this.getExecutablePath()!, preparedArgs, { detached: false, stdio: "ignore" });
+      const emulatorProcess = this.spawnProcess(preparedArgs);
 
       let started = false;
       let finalized = false;
@@ -462,10 +463,11 @@ export class AzaharEmulator extends Emulator {
    */
   private getAzaharDirectories(platform: NodeJS.Platform = process.platform): AzaharDirectories {
     const executablePath = this.getExecutablePath();
-    const portableRoot = platform === "win32" && executablePath ? path.dirname(executablePath) : process.cwd();
-    const portableUserDir = path.join(portableRoot, "user");
-    if (fsSync.existsSync(portableUserDir)) {
-      return { data: portableUserDir, config: path.join(portableUserDir, "config") };
+    if (platform === "win32" && executablePath) {
+      const portableUserDir = path.join(path.dirname(executablePath), "user");
+      if (fsSync.existsSync(portableUserDir)) {
+        return { data: portableUserDir, config: path.join(portableUserDir, "config") };
+      }
     }
 
     if (platform === "win32") {
@@ -641,7 +643,7 @@ export class AzaharEmulator extends Emulator {
         return;
       }
 
-      execFile("ps", ["-A", "-o", "comm="], (error, stdout) => {
+      execFile("ps", ["-A", "-o", "comm="], { env: createExternalProcessEnv() }, (error, stdout) => {
         if (error) {
           console.warn(`[AZAHAR] Could not check for an existing process: ${error.message}`);
           resolve(false);

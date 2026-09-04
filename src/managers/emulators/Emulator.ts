@@ -1,4 +1,4 @@
-import { spawn, ChildProcess } from "child_process";
+import { spawn, ChildProcess, SpawnOptions } from "child_process";
 import * as fs from "fs/promises";
 import * as fsSync from "fs";
 import * as path from "path";
@@ -6,6 +6,7 @@ import * as path from "path";
 import { Rom } from "../../types/RommApi";
 import { RommApi } from "../../api/RommApi";
 import { SaveManager } from "../SaveManager";
+import { createExternalProcessEnv } from "../../utils/ExternalProcess";
 
 export interface EmulatorConfig {
   path?: string;
@@ -154,6 +155,38 @@ export abstract class Emulator {
     return this.defaultArgs.map((arg) => arg.replace("{rom}", romPath).replace("{save}", saveDir));
   }
 
+  /** Spawn an emulator without leaking RomM Client's AppImage environment. */
+  protected spawnProcess(args: string[], options: SpawnOptions = {}): ChildProcess {
+    const executablePath = this.getExecutablePath();
+    if (!executablePath) throw new Error(`Emulator path not configured for ${this.name}`);
+
+    const emulatorProcess = spawn(executablePath, args, {
+      detached: false,
+      stdio: "ignore",
+      ...options,
+      env: createExternalProcessEnv(options.env),
+    });
+    emulatorProcess.on("error", (error) => console.error(`[${this.name}] Process error: ${error.message}`));
+    return emulatorProcess;
+  }
+
+  /** Wait until the OS has started the executable, or surface its spawn error. */
+  protected waitForProcessStart(emulatorProcess: ChildProcess): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const onSpawn = () => {
+        emulatorProcess.removeListener("error", onError);
+        resolve();
+      };
+      const onError = (error: Error) => {
+        emulatorProcess.removeListener("spawn", onSpawn);
+        reject(error);
+      };
+
+      emulatorProcess.once("spawn", onSpawn);
+      emulatorProcess.once("error", onError);
+    });
+  }
+
   /**
    * Setup emulator environment before launch
    * Override in subclasses for platform-specific setup
@@ -191,14 +224,10 @@ export abstract class Emulator {
     console.log(`Launching ${this.name}: ${emulatorPath} ${args.join(" ")}`);
 
     return new Promise((resolve) => {
-      const emulatorProcess = spawn(emulatorPath, args, {
-        detached: false,
-        stdio: "ignore",
-      });
+      const emulatorProcess = this.spawnProcess(args);
       let launchResolved = false;
 
       emulatorProcess.on("error", (error) => {
-        console.error(`[${this.name}] Process error: ${error.message}`);
         if (!launchResolved) {
           launchResolved = true;
           resolve({
@@ -287,15 +316,17 @@ export abstract class Emulator {
     console.log(`Launching ${this.name} in configuration mode: ${emulatorPath}`);
 
     // Launch emulator without ROM for configuration
-    const emulatorProcess = spawn(emulatorPath, [], {
-      detached: false,
-      stdio: "ignore",
-    });
+    try {
+      const emulatorProcess = this.spawnProcess([]);
+      await this.waitForProcessStart(emulatorProcess);
 
-    return {
-      success: true,
-      pid: emulatorProcess.pid,
-    };
+      return {
+        success: true,
+        pid: emulatorProcess.pid,
+      };
+    } catch (error: any) {
+      return { success: false, error: `Failed to start ${this.name}: ${error.message}` };
+    }
   }
 
   /**

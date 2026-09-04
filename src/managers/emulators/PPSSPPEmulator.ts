@@ -2,12 +2,12 @@ import { Emulator, EmulatorConfig, EnvironmentSetupResult, SaveComparisonResult,
 import { Rom } from "../../types/RommApi";
 import { RommApi } from "../../api/RommApi";
 import { SaveManager } from "../SaveManager";
-import { spawn } from "child_process";
 import fs from "fs/promises";
 import fsSync from "fs";
 import path from "path";
 import AdmZip from "adm-zip";
 import os from "os";
+import { getPpssppSessionMemstickDirectory } from "../../utils/EmulatorRuntime";
 
 /**
  * PPSSPP (PSP) Emulator implementation
@@ -58,8 +58,27 @@ export class PPSSPPEmulator extends Emulator {
     return true;
   }
 
+  /** PPSSPP uses $XDG_CONFIG_HOME/ppsspp as its memstick on Linux. */
+  private getSessionMemstickDirectory(saveDir: string): string {
+    return getPpssppSessionMemstickDirectory(saveDir);
+  }
+
+  private getLinuxEnvironment(xdgConfigHome: string): NodeJS.ProcessEnv | undefined {
+    return process.platform === "linux" ? { XDG_CONFIG_HOME: xdgConfigHome } : undefined;
+  }
+
+  private async pointPortableInstallAt(memstickDirectory: string): Promise<void> {
+    const executablePath = this.getExecutablePath();
+    if (!executablePath) throw new Error("PPSSPP path not configured");
+
+    const ppssppDir = path.dirname(executablePath);
+    const portableTxtPath = path.join(ppssppDir, "portable.txt");
+    if (!fsSync.existsSync(portableTxtPath)) await fs.writeFile(portableTxtPath, "");
+    await fs.writeFile(path.join(ppssppDir, "installed.txt"), memstickDirectory.replace(/\\/g, "/"));
+  }
+
   /**
-   * Start PPSSPP in configuration mode with proper portable setup
+   * Start PPSSPP in configuration mode with an isolated user directory.
    */
   public async startInConfigMode(configFolder: string): Promise<{ success: boolean; error?: string; pid?: number }> {
     try {
@@ -71,34 +90,14 @@ export class PPSSPPEmulator extends Emulator {
         };
       }
 
-      const ppssppDir = path.dirname(emulatorPath);
-
-      // 1. Create portable.txt to enable portable mode
-      const portableTxtPath = path.join(ppssppDir, "portable.txt");
-      if (!fsSync.existsSync(portableTxtPath)) {
-        await fs.writeFile(portableTxtPath, "");
-        console.log(`Created portable.txt in PPSSPP directory for config mode`);
-      }
-
-      // 2. Use the emulator-specific config folder for memstick
       await fs.mkdir(configFolder, { recursive: true });
+      if (process.platform !== "linux") await this.pointPortableInstallAt(configFolder);
 
-      // 3. Create installed.txt pointing to the emulator config folder
-      const installedTxtPath = path.join(ppssppDir, "installed.txt");
-      const memstickPathForInstalled = configFolder.replace(/\\/g, "/");
-      await fs.writeFile(installedTxtPath, memstickPathForInstalled);
-      console.log(`Created installed.txt pointing to emulator config folder: ${memstickPathForInstalled}`);
-
-      // Note: In config mode, we don't copy from default memstick
-      // The config folder will become the source for future sessions
-      console.log(`Using clean config folder for PPSSPP - no copying from default memstick`);
-
-      // 4. Launch PPSSPP in configuration mode
       console.log(`Launching PPSSPP in configuration mode: ${emulatorPath}`);
-      const emulatorProcess = spawn(emulatorPath, [], {
-        detached: false,
-        stdio: "ignore",
+      const emulatorProcess = this.spawnProcess([], {
+        env: this.getLinuxEnvironment(path.dirname(configFolder)),
       });
+      await this.waitForProcessStart(emulatorProcess);
 
       return {
         success: true,
@@ -115,32 +114,19 @@ export class PPSSPPEmulator extends Emulator {
 
   public async setupEnvironment(rom: Rom, saveDir: string, rommAPI: RommApi | null, saveManager: SaveManager, configFolder: string): Promise<EnvironmentSetupResult> {
     try {
-      const ppssppDir = path.dirname(this.getExecutablePath()!);
-
-      // 1. Create portable.txt to enable portable mode
-      const portableTxtPath = path.join(ppssppDir, "portable.txt");
-      if (!fsSync.existsSync(portableTxtPath)) {
-        await fs.writeFile(portableTxtPath, "");
-        console.log(`Created portable.txt in PPSSPP directory`);
-      }
-
-      // 2. Clean slate - delete entire session directory if it exists and rebuild from config
+      // Clean slate - delete entire session directory if it exists and rebuild from config
       console.log(`[PPSSPP] Cleaning up existing session directory: ${saveDir}`);
       if (fsSync.existsSync(saveDir)) {
         await this.deleteDirectoryRecursive(saveDir);
         console.log(`[PPSSPP] Deleted existing session directory`);
       }
 
-      // 3. Setup ROM-specific memstick directory (fresh)
-      const romMemstickDir = path.join(saveDir, "memstick");
+      // Setup ROM-specific memstick directory (fresh)
+      const romMemstickDir = this.getSessionMemstickDirectory(saveDir);
       await fs.mkdir(romMemstickDir, { recursive: true });
       console.log(`[PPSSPP] Created fresh memstick directory: ${romMemstickDir}`);
 
-      // 4. Create installed.txt pointing to ROM memstick
-      const installedTxtPath = path.join(ppssppDir, "installed.txt");
-      const memstickPathForInstalled = romMemstickDir.replace(/\\/g, "/");
-      await fs.writeFile(installedTxtPath, memstickPathForInstalled);
-      console.log(`Created installed.txt pointing to: ${memstickPathForInstalled}`);
+      if (process.platform !== "linux") await this.pointPortableInstallAt(romMemstickDir);
 
       // 5. Copy entire emulator config folder to ROM memstick (with all subdirectories)
       if (fsSync.existsSync(configFolder)) {
@@ -192,7 +178,7 @@ export class PPSSPPEmulator extends Emulator {
 
       return { success: true, pspSaveDir, gameSaveDir: pspSaveDir };
     } catch (error: any) {
-      console.error(`Failed to setup PPSSPP portable mode: ${error.message}`);
+      console.error(`Failed to set up the PPSSPP environment: ${error.message}`);
       return {
         success: false,
         error: `PPSSPP setup failed: ${error.message}`,
@@ -226,7 +212,7 @@ export class PPSSPPEmulator extends Emulator {
    */
   public async handleSavePreparation(rom: Rom, saveDir: string, localSaveDir: string, saveManager: SaveManager): Promise<{ success: boolean; error?: string }> {
     try {
-      const pspSaveDir = path.join(saveDir, "memstick", "PSP", "SAVEDATA");
+      const pspSaveDir = path.join(this.getSessionMemstickDirectory(saveDir), "PSP", "SAVEDATA");
 
       // Check if there are local saves
       if (!fsSync.existsSync(localSaveDir)) {
@@ -278,7 +264,7 @@ export class PPSSPPEmulator extends Emulator {
   public async handleSaveSync(rom: Rom, saveDir: string, rommAPI: RommApi | null, saveManager: SaveManager): Promise<SaveSyncResult> {
     try {
       // Use simple SAVEDATA directory
-      const pspSaveDir = path.join(saveDir, "memstick", "PSP", "SAVEDATA");
+      const pspSaveDir = path.join(this.getSessionMemstickDirectory(saveDir), "PSP", "SAVEDATA");
       console.log(`Uploading saves from ${pspSaveDir} to RomM...`);
 
       if (!rommAPI) {
@@ -473,7 +459,7 @@ export class PPSSPPEmulator extends Emulator {
       const { rom, finalRomPath, saveDir } = romData;
 
       // Use SAVEDATA directory
-      const pspSaveDir = path.join(saveDir, "memstick", "PSP", "SAVEDATA");
+      const pspSaveDir = path.join(this.getSessionMemstickDirectory(saveDir), "PSP", "SAVEDATA");
 
       console.log(`User chose save: ${saveChoice}${saveId ? ` (ID: ${saveId})` : ""}`);
       console.log(`Target save directory: ${pspSaveDir}`);
@@ -566,15 +552,15 @@ export class PPSSPPEmulator extends Emulator {
 
       // Launch emulator
       console.log(`Launching emulator: ${this.getExecutablePath()} ${preparedArgs.join(" ")}`);
-      onProgress?.({ step: "launch", percent: 100, message: "Game launched" });
-      const emulatorProcess = spawn(this.getExecutablePath()!, preparedArgs, {
-        detached: false,
-        stdio: "ignore",
+      const emulatorProcess = this.spawnProcess(preparedArgs, {
+        env: this.getLinuxEnvironment(path.dirname(this.getSessionMemstickDirectory(saveDir))),
       });
 
       // Monitor process to upload saves when it closes
+      let started = false;
       let saveUploaded = false; // Prevent duplicate uploads
       emulatorProcess.on("exit", async (code) => {
+        if (!started) return;
         console.log(`Emulator closed with code ${code}`);
         onProgress?.({ step: "save-sync", percent: 60, message: "Game closed, syncing saves..." });
         if (!saveUploaded) {
@@ -607,6 +593,10 @@ export class PPSSPPEmulator extends Emulator {
         }
       });
 
+      await this.waitForProcessStart(emulatorProcess);
+      started = true;
+      onProgress?.({ step: "launch", percent: 100, message: "Game launched" });
+
       return {
         success: true,
         message: `ROM launched: ${rom.name}`,
@@ -631,7 +621,7 @@ export class PPSSPPEmulator extends Emulator {
     const extractedFiles: string[] = [];
 
     // PPSSPP saves are in memstick/PSP/SAVEDATA/
-    const ppssppSavePath = path.join(sessionPath, "memstick", "PSP", "SAVEDATA");
+    const ppssppSavePath = path.join(this.getSessionMemstickDirectory(sessionPath), "PSP", "SAVEDATA");
 
     if (!fsSync.existsSync(ppssppSavePath)) {
       console.log(`[PPSSPP] No SAVEDATA directory found in session: ${ppssppSavePath}`);

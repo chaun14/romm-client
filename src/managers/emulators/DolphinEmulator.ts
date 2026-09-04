@@ -2,7 +2,6 @@ import { Emulator, EmulatorConfig, EnvironmentSetupResult, SaveComparisonResult,
 import { Rom } from "../../types/RommApi";
 import { RommApi } from "../../api/RommApi";
 import { SaveManager } from "../SaveManager";
-import { spawn } from "child_process";
 import * as fs from "fs/promises";
 import * as fsSync from "fs";
 import * as path from "path";
@@ -26,7 +25,7 @@ export class DolphinEmulator extends Emulator {
    * Get supported file extensions for Dolphin
    */
   public static getExtensions(): string[] {
-    return [".iso", ".gcm", ".wbfs", ".ciso", ".gcz"];
+    return [".gcm", ".bin", ".iso", ".tgc", ".wbfs", ".ciso", ".gcz", ".wia", ".rvz", ".nfs", ".wad", ".dol", ".elf"];
   }
 
   /**
@@ -76,10 +75,8 @@ export class DolphinEmulator extends Emulator {
 
       // Launch Dolphin with the emulator-specific config folder as user directory
       console.log(`Launching Dolphin in configuration mode: ${emulatorPath} -u "${configFolder}"`);
-      const emulatorProcess = spawn(emulatorPath, ["-u", configFolder], {
-        detached: false,
-        stdio: "ignore",
-      });
+      const emulatorProcess = this.spawnProcess(["-u", configFolder]);
+      await this.waitForProcessStart(emulatorProcess);
 
       return {
         success: true,

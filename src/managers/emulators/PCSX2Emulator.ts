@@ -3,12 +3,12 @@ import { Rom } from "../../types/RommApi";
 import { RommApi } from "../../api/RommApi";
 import { SaveManager } from "../SaveManager";
 import { IniManager } from "../IniManager";
-import { spawn } from "child_process";
 import fs from "fs/promises";
 import fsSync from "fs";
 import path from "path";
 import AdmZip from "adm-zip";
 import os from "os";
+import { getPcsx2DataRoot, getPcsx2LaunchArguments } from "../../utils/EmulatorRuntime";
 
 /**
  * PCSX2 (PS2) Emulator implementation
@@ -56,11 +56,11 @@ export class PCSX2Emulator extends Emulator {
 
   /**
    * Prepare emulator arguments
-   * Uses -portable mode to force PCSX2 to use local config
-   * Format: pcsx2-qt.exe -portable -nogui -fullscreen -- /path/to/rom.iso
+   * Linux isolates PCSX2 through XDG_CONFIG_HOME; other platforms retain
+   * the existing portable-mode behavior.
    */
-  public prepareArgs(romPath: string, configPath: string): string[] {
-    return ["-portable", "-fullscreen", "--", romPath];
+  public prepareArgs(romPath: string, _configPath: string): string[] {
+    return getPcsx2LaunchArguments(romPath);
   }
 
   /**
@@ -68,6 +68,15 @@ export class PCSX2Emulator extends Emulator {
    */
   public static getSupportsSaves(): boolean {
     return true;
+  }
+
+  /** PCSX2 resolves its Linux data root as $XDG_CONFIG_HOME/PCSX2. */
+  private getDataRoot(container: string): string {
+    return getPcsx2DataRoot(container);
+  }
+
+  private getProcessEnvironment(container: string): NodeJS.ProcessEnv {
+    return process.platform === "linux" ? { XDG_CONFIG_HOME: container } : { PCSX2_HOME: container };
   }
 
   /**
@@ -83,25 +92,20 @@ export class PCSX2Emulator extends Emulator {
         };
       }
 
-      // Use the emulator-specific config folder
-      await fs.mkdir(configFolder, { recursive: true });
-      console.log(`Using emulator config folder for PCSX2: ${configFolder}`);
+      const configDataRoot = this.getDataRoot(configFolder);
+      await fs.mkdir(configDataRoot, { recursive: true });
+      console.log(`Using emulator config folder for PCSX2: ${configDataRoot}`);
 
       // Setup INI file for config mode in the emulator's ini folder
-      await this.setupIniFileForConfigMode(configFolder);
+      await this.setupIniFileForConfigMode(configDataRoot);
 
-      // Launch PCSX2 in configuration mode with -portable flag
       console.log(`Launching PCSX2 in configuration mode: ${emulatorPath}`);
-      const args = ["-portable"];
+      const args = process.platform === "linux" ? [] : ["-portable"];
 
-      const emulatorProcess = spawn(emulatorPath, args, {
-        detached: false,
-        stdio: "ignore",
-        env: {
-          ...process.env,
-          PCSX2_HOME: configFolder,
-        },
+      const emulatorProcess = this.spawnProcess(args, {
+        env: this.getProcessEnvironment(configFolder),
       });
+      await this.waitForProcessStart(emulatorProcess);
 
       return {
         success: true,
@@ -122,8 +126,8 @@ export class PCSX2Emulator extends Emulator {
    */
   private async setupIniFileForConfigMode(emulatorConfigFolder: string): Promise<void> {
     try {
-      // Setup portable INI without memcards path substitution (use defaults)
-      await this.setupPortableIniFile(emulatorConfigFolder, null);
+      // Set up the runtime INI without memcard path substitution (use defaults).
+      await this.setupIniFile(emulatorConfigFolder, null);
       console.log(`[PCSX2] Config mode INI file created successfully`);
     } catch (error: any) {
       console.warn(`[PCSX2] Failed to setup config mode INI file: ${error.message}`);
@@ -140,12 +144,15 @@ export class PCSX2Emulator extends Emulator {
       }
 
       // 2. Setup ROM-specific config directory (fresh)
-      await fs.mkdir(saveDir, { recursive: true });
-      console.log(`[PCSX2] Created fresh session directory: ${saveDir}`);
+      const sessionDataRoot = this.getDataRoot(saveDir);
+      await fs.mkdir(sessionDataRoot, { recursive: true });
+      console.log(`[PCSX2] Created fresh session directory: ${sessionDataRoot}`);
 
       // 3. Copy entire emulator config folder to ROM session (with all subdirectories)
-      if (fsSync.existsSync(configFolder)) {
-        console.log(`[PCSX2] Full config sync from: ${configFolder}`);
+      const configuredDataRoot = this.getDataRoot(configFolder);
+      const configSource = fsSync.existsSync(configuredDataRoot) ? configuredDataRoot : configFolder;
+      if (fsSync.existsSync(configSource)) {
+        console.log(`[PCSX2] Full config sync from: ${configSource}`);
 
         // Recursive copy of all files and folders, excluding memcards/saves and INI
         const copyDirRecursive = async (src: string, dest: string): Promise<void> => {
@@ -185,29 +192,25 @@ export class PCSX2Emulator extends Emulator {
           }
         };
 
-        await copyDirRecursive(configFolder, saveDir);
+        await copyDirRecursive(configSource, sessionDataRoot);
         console.log(`[PCSX2] Full config sync completed`);
       } else {
         console.log(`[PCSX2] No emulator config folder found at: ${configFolder}`);
       }
 
       // 4. Create save directories for this ROM
-      const memcardsDir = path.join(saveDir, "memcards");
-      const savesDir = path.join(saveDir, "saves");
+      const memcardsDir = path.join(sessionDataRoot, "memcards");
+      const savesDir = path.join(sessionDataRoot, "saves");
       await fs.mkdir(memcardsDir, { recursive: true });
       await fs.mkdir(savesDir, { recursive: true });
       console.log(`[PCSX2] Created save directories: ${memcardsDir}, ${savesDir}`);
 
-      // 5. Copy template INI to the emulator's ini folder with MemoryCards path substitution
-      // This is needed because -portable mode reads PCSX2.ini from the emulator root
-      // Get the actual emulator installation directory (where the exe is)
+      // Linux reads this from $XDG_CONFIG_HOME/PCSX2/inis. Portable builds
+      // on other platforms continue to read it beside the executable.
       const emulatorExePath = this.getExecutablePath();
-      if (emulatorExePath) {
-        const emulatorInstallDir = path.dirname(emulatorExePath);
-        await this.setupPortableIniFile(emulatorInstallDir, memcardsDir);
-      } else {
-        console.warn("[PCSX2] Emulator executable path not configured, skipping INI setup");
-      }
+      const iniDataRoot = process.platform === "linux" ? sessionDataRoot : emulatorExePath ? path.dirname(emulatorExePath) : null;
+      if (iniDataRoot) await this.setupIniFile(iniDataRoot, memcardsDir);
+      else console.warn("[PCSX2] Emulator executable path not configured, skipping INI setup");
 
       return { success: true, gameSaveDir: saveDir };
     } catch (error: any) {
@@ -220,15 +223,13 @@ export class PCSX2Emulator extends Emulator {
   }
 
   /**
-   * Setup PCSX2.ini in the emulator's ini folder for -portable mode
+   * Set up PCSX2.ini in the selected data root.
    * Copies the template and optionally substitutes the MemoryCards path
-   * This is needed because -portable mode reads from the emulator root's ini folder
-   * @param emulatorConfigFolder - Path to the emulator's config folder
+   * @param emulatorConfigFolder - PCSX2 data root (XDG or portable install root)
    * @param memcardsDir - Optional: specific memcards directory path. If null, uses template defaults
    */
-  private async setupPortableIniFile(emulatorConfigFolder: string, memcardsDir: string | null): Promise<void> {
+  private async setupIniFile(emulatorConfigFolder: string, memcardsDir: string | null): Promise<void> {
     try {
-      // emulatorConfigFolder is already the emulator root (e.g., D:\emulators\pcsx2-v2.4.0-windows-x64-Qt\emulator)
       const emulatorRoot = emulatorConfigFolder;
       const iniFolder = path.join(emulatorRoot, "inis"); // Note: plural "inis", not "ini"
       const pcsx2IniPath = path.join(iniFolder, "PCSX2.ini");
@@ -236,7 +237,7 @@ export class PCSX2Emulator extends Emulator {
       // Path to our template
       const templatePath = path.join(__dirname, "../../renderer/assets/configs/pcsx2-rommclient.ini");
 
-      console.log(`[PCSX2] Setting up portable INI:`);
+      console.log(`[PCSX2] Setting up runtime INI:`);
       console.log(`[PCSX2]   emulatorRoot: ${emulatorRoot}`);
       console.log(`[PCSX2]   iniFolder: ${iniFolder}`);
       console.log(`[PCSX2]   templatePath: ${templatePath}`);
@@ -299,7 +300,7 @@ export class PCSX2Emulator extends Emulator {
         console.error(`[PCSX2] ✗ INI file was not created: ${pcsx2IniPath}`);
       }
     } catch (error: any) {
-      console.error(`[PCSX2] Failed to setup portable INI file: ${error.message}`);
+      console.error(`[PCSX2] Failed to setup runtime INI file: ${error.message}`);
       // Don't throw - the emulator might still work with existing config
     }
   }
@@ -330,8 +331,9 @@ export class PCSX2Emulator extends Emulator {
    */
   public async handleSavePreparation(rom: Rom, saveDir: string, localSaveDir: string, saveManager: SaveManager): Promise<{ success: boolean; error?: string }> {
     try {
-      const memcardsDir = path.join(saveDir, "memcards");
-      const savesDir = path.join(saveDir, "saves");
+      const dataRoot = this.getDataRoot(saveDir);
+      const memcardsDir = path.join(dataRoot, "memcards");
+      const savesDir = path.join(dataRoot, "saves");
 
       // Check if there are local saves
       if (!fsSync.existsSync(localSaveDir)) {
@@ -370,8 +372,9 @@ export class PCSX2Emulator extends Emulator {
   public async handleSaveSync(rom: Rom, saveDir: string, rommAPI: RommApi | null, saveManager: SaveManager): Promise<SaveSyncResult> {
     try {
       // Use both memcards and saves directories
-      const memcardsDir = path.join(saveDir, "memcards");
-      const savesDir = path.join(saveDir, "saves");
+      const dataRoot = this.getDataRoot(saveDir);
+      const memcardsDir = path.join(dataRoot, "memcards");
+      const savesDir = path.join(dataRoot, "saves");
       console.log(`Uploading saves from ${memcardsDir} and ${savesDir} to RomM...`);
 
       if (!rommAPI) {
@@ -570,8 +573,9 @@ export class PCSX2Emulator extends Emulator {
       const { rom, finalRomPath, saveDir } = romData;
 
       // Use save directories
-      const memcardsDir = path.join(saveDir, "memcards");
-      const savesDir = path.join(saveDir, "saves");
+      const dataRoot = this.getDataRoot(saveDir);
+      const memcardsDir = path.join(dataRoot, "memcards");
+      const savesDir = path.join(dataRoot, "saves");
 
       console.log(`User chose save: ${saveChoice}${saveId ? ` (ID: ${saveId})` : ""}`);
       console.log(`Target save directories: ${memcardsDir}, ${savesDir}`);
@@ -626,12 +630,12 @@ export class PCSX2Emulator extends Emulator {
 
         // Extract the ZIP file
         const zip = new AdmZip(downloadResult.data);
-        zip.extractAllTo(saveDir, true);
+        zip.extractAllTo(dataRoot, true);
 
         console.log(`[PCSX2] Save extracted successfully`);
 
         // Verify extraction
-        const extractedFiles = await fs.readdir(saveDir, { recursive: true });
+        const extractedFiles = await fs.readdir(dataRoot, { recursive: true });
         console.log(`[PCSX2] Extracted files:`, extractedFiles);
       } else if (saveChoice === "local") {
         console.log(`[PCSX2] Using existing local save for ROM ${rom.id}`);
@@ -665,32 +669,25 @@ export class PCSX2Emulator extends Emulator {
       // Prepare emulator arguments
       const preparedArgs = this.prepareArgs(finalRomPath, saveDir);
 
-      // Setup portable INI file with the current ROM's memcards directory
+      // Update the session INI with the current ROM's memcards directory.
       // This must happen right before launch to ensure correct paths
       // Get the actual emulator installation directory (where the exe is)
       const emulatorExePath = this.getExecutablePath();
-      if (emulatorExePath) {
-        const emulatorInstallDir = path.dirname(emulatorExePath);
-        await this.setupPortableIniFile(emulatorInstallDir, memcardsDir);
-      } else {
-        console.warn("[PCSX2] Emulator executable path not configured, skipping INI setup");
-      }
+      const iniDataRoot = process.platform === "linux" ? dataRoot : emulatorExePath ? path.dirname(emulatorExePath) : null;
+      if (iniDataRoot) await this.setupIniFile(iniDataRoot, memcardsDir);
+      else console.warn("[PCSX2] Emulator executable path not configured, skipping INI setup");
 
       // Launch emulator
       console.log(`Launching emulator: ${this.getExecutablePath()} ${preparedArgs.join(" ")}`);
-      onProgress?.({ step: "launch", percent: 100, message: "Game launched" });
-      const emulatorProcess = spawn(this.getExecutablePath()!, preparedArgs, {
-        detached: false,
-        stdio: "ignore",
-        env: {
-          ...process.env,
-          PCSX2_HOME: saveDir,
-        },
+      const emulatorProcess = this.spawnProcess(preparedArgs, {
+        env: this.getProcessEnvironment(saveDir),
       });
 
       // Monitor process to upload saves when it closes
+      let started = false;
       let saveUploaded = false; // Prevent duplicate uploads
       emulatorProcess.on("exit", async (code) => {
+        if (!started) return;
         console.log(`Emulator closed with code ${code}`);
         onProgress?.({ step: "save-sync", percent: 60, message: "Game closed, syncing saves..." });
         if (!saveUploaded) {
@@ -723,6 +720,10 @@ export class PCSX2Emulator extends Emulator {
         }
       });
 
+      await this.waitForProcessStart(emulatorProcess);
+      started = true;
+      onProgress?.({ step: "launch", percent: 100, message: "Game launched" });
+
       return {
         success: true,
         message: `ROM launched: ${rom.name}`,
@@ -747,8 +748,9 @@ export class PCSX2Emulator extends Emulator {
     const extractedFiles: string[] = [];
 
     // PCSX2 saves are in memcards/ and saves/
-    const memcardsPath = path.join(sessionPath, "memcards");
-    const savesPath = path.join(sessionPath, "saves");
+    const dataRoot = this.getDataRoot(sessionPath);
+    const memcardsPath = path.join(dataRoot, "memcards");
+    const savesPath = path.join(dataRoot, "saves");
 
     const copySaveFilesPreservingStructure = async (src: string, dest: string, folder: string) => {
       if (!fsSync.existsSync(src)) {
