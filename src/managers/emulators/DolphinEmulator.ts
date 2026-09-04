@@ -110,10 +110,11 @@ export class DolphinEmulator extends Emulator {
     // Wii games are generally larger and have different characteristics
 
     // Check platform info first
-    if (rom.platform_slug && rom.platform_slug.toLowerCase().includes("wii")) {
+    const platformSlug = rom.platform_slug?.toLowerCase();
+    if (platformSlug?.includes("wii")) {
       return true;
     }
-    if (rom.platform_slug && rom.platform_slug.toLowerCase().includes("gamecube")) {
+    if (platformSlug === "ngc" || platformSlug === "gc" || platformSlug?.includes("gamecube")) {
       return false;
     }
 

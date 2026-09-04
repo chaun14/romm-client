@@ -476,7 +476,7 @@ export class RomManager {
     rom.localFiles = existingFiles;
 
     // Check if there's a zip file in the ROM's files list
-    const zipFile = Array.isArray(rom.files) ? rom.files.find((f) => f.file_name.endsWith(".zip")) : undefined;
+    const zipFile = Array.isArray(rom.files) ? rom.files.find((f) => f.file_name.toLowerCase().endsWith(".zip")) : undefined;
     let useZipHash = false;
     let zipHashParams;
 
@@ -499,7 +499,7 @@ export class RomManager {
       }
 
       // Skip zip files themselves if we're using zip hash
-      if (useZipHash && filePath.endsWith(".zip")) {
+      if (useZipHash && filePath.toLowerCase().endsWith(".zip")) {
         console.log(`[ROM INTEGRITY] Skipping zip file integrity check (using zip hash for others): ${filePath}`);
         continue;
       }
@@ -610,7 +610,7 @@ export class RomManager {
       }
 
       // if we've downloaded a zip file among the files, we need to extract it
-      const zipFiles = localRom!.files.filter((f) => f.file_name.endsWith(".zip"));
+      const zipFiles = (Array.isArray(localRom!.files) ? localRom!.files : []).filter((f) => f.file_name.toLowerCase().endsWith(".zip"));
       for (const zipFile of zipFiles) {
         const zipFilePath = path.join(localRom!.localPath, zipFile.file_name);
         console.log("[LAUNCH]" + `Extracting zip file (streaming): ${zipFilePath}`);
@@ -978,12 +978,14 @@ export class RomManager {
       return null;
     }
 
-    const files = fs.readdirSync(dirPath);
-    for (const file of files) {
-      const ext = path.extname(file).toLowerCase();
-      if (romExtensions.includes(ext)) {
-        return path.join(dirPath, file);
-      }
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isFile() && romExtensions.includes(path.extname(entry.name).toLowerCase())) return path.join(dirPath, entry.name);
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const nestedRom = this.findRomFileInPath(path.join(dirPath, entry.name), supportedExtensions);
+      if (nestedRom) return nestedRom;
     }
 
     return null;

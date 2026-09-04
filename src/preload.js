@@ -67,27 +67,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // Emulators
     emulator: {
-        launchWithSaveChoice: (romData, saveChoice, saveId) =>
-            ipcRenderer.invoke('emulator:launch-with-save-choice', { romData, saveChoice, saveId }),
-        configure: (platform, emulatorPath) =>
-            ipcRenderer.invoke('emulator:configure', { platform, emulatorPath }),
         configureEmulator: (emulatorKey, emulatorPath) =>
             ipcRenderer.invoke('emulator:configure-emulator', { emulatorKey, emulatorPath }),
         getConfigs: () => ipcRenderer.invoke('emulator:get-configs'),
         selectExecutable: () => ipcRenderer.invoke('emulator:select-executable'),
         saveConfig: (emulatorKey, path) => ipcRenderer.invoke('emulator:saveConfig', { emulatorKey, path }),
         unregister: (emulatorKey) => ipcRenderer.invoke('emulator:unregister', emulatorKey),
-        isPlatformSupported: (platform) => ipcRenderer.invoke('emulator:is-platform-supported', platform),
-        getSupportedPlatforms: () => ipcRenderer.invoke('emulator:get-supported-platforms'),
         getSupportedEmulators: () => ipcRenderer.invoke('emulator:get-supported-emulators')
-    },
-
-    // Sauvegardes
-    saves: {
-        download: (romId) => ipcRenderer.invoke('saves:download', romId),
-        upload: (romId, savePath) =>
-            ipcRenderer.invoke('saves:upload', { romId, savePath }),
-        sync: (romId) => ipcRenderer.invoke('saves:sync', romId)
     },
 
     // Plateformes

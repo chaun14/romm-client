@@ -30,7 +30,7 @@ export class RommApi {
   private axiosPromise: Promise<AxiosModule["default"]> = import("axios").then((module) => (module as AxiosModule).default);
 
   constructor(baseUrl: string = "") {
-    this.baseUrl = baseUrl.replace(/\/$/, "");
+    this.baseUrl = baseUrl.replace(/\/+$/, "");
     void this.initClient();
   }
 
@@ -65,8 +65,12 @@ export class RommApi {
     if (!setCookieHeaders) return cookies;
 
     for (const cookieStr of setCookieHeaders) {
-      const [name, value] = cookieStr.split(";")[0].split("=");
-      if (name && value) cookies[name.trim()] = value.trim();
+      const cookie = cookieStr.split(";", 1)[0];
+      const separatorIndex = cookie.indexOf("=");
+      if (separatorIndex <= 0) continue;
+      const name = cookie.slice(0, separatorIndex).trim();
+      const value = cookie.slice(separatorIndex + 1).trim();
+      if (name && value) cookies[name] = value;
     }
     return cookies;
   }
@@ -98,7 +102,7 @@ export class RommApi {
   }
 
   setBaseUrl(url: string): void {
-    this.baseUrl = url.replace(/\/$/, "");
+    this.baseUrl = url.replace(/\/+$/, "");
     this.client = null;
     this.available = false;
     void this.initClient();
@@ -155,6 +159,7 @@ export class RommApi {
         this.sessionToken = `romm_session=${cookies["romm_session"]}`;
         console.log("Login successful, session token obtained.");
       }
+      if (!this.sessionToken) throw new Error("Login response did not include a RomM session cookie");
       this.csrfToken = cookies["romm_csrftoken"] || cookies["csrftoken"];
 
       await this.initClient();
@@ -229,7 +234,8 @@ export class RommApi {
       }
     } catch (error: any) {
       console.log("OAuth authentication failed - token invalid or expired.");
-      this.clearAuth();
+      const status = error.response?.status;
+      if (status === 401 || status === 403) this.clearAuth();
       return this.handleApiError(error);
     }
   }
@@ -411,11 +417,11 @@ export class RommApi {
       if (rom.has_simple_single_file) {
         const singleFile = romFiles[0];
         const fileName = singleFile?.file_name || rom.fs_name;
-        toDownload.set(singleFile?.id || rom.id, { endpoint: `/api/roms/${rom.id}/content/${encodeURIComponent(rom.fs_name)}`, dest_path: `${path}/${fileName}`, rom });
+        toDownload.set(singleFile?.id || rom.id, { endpoint: `/api/roms/${rom.id}/content/${encodeURIComponent(rom.fs_name)}`, dest_path: this.resolveDownloadDestination(path, fileName), rom });
         totalToDownload += singleFile?.file_size_bytes || rom.fs_size_bytes || 0;
       } else if (rom.has_multiple_files || rom.has_nested_single_file || romFiles.length > 0) {
         for (let file of romFiles) {
-          toDownload.set(file.id, { endpoint: `/api/roms/${rom.id}/content/${encodeURIComponent(rom.fs_name)}?file_ids=${file.id}`, dest_path: `${path}/${file.file_name}`, rom });
+          toDownload.set(file.id, { endpoint: `/api/roms/${rom.id}/content/${encodeURIComponent(rom.fs_name)}?file_ids=${file.id}`, dest_path: this.resolveDownloadDestination(path, file.file_name), rom });
           totalToDownload += file.file_size_bytes;
         }
       }
@@ -626,5 +632,14 @@ export class RommApi {
 
   getAuthHeaders(): Record<string, string> {
     return this.sessionToken ? { Cookie: this.sessionToken } : {};
+  }
+
+  private resolveDownloadDestination(rootDirectory: string, fileName: string): string {
+    const destination = pathModule.resolve(rootDirectory, fileName);
+    const relative = pathModule.relative(pathModule.resolve(rootDirectory), destination);
+    if (!fileName || !relative || relative.startsWith("..") || pathModule.isAbsolute(relative)) {
+      throw new Error(`Unsafe ROM file path: ${fileName || "<empty>"}`);
+    }
+    return destination;
   }
 }

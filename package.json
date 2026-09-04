@@ -13,6 +13,7 @@
     "build:renderer": "vite build",
     "copy-assets": "node scripts/copy-renderer-assets.js",
     "test": "npm run build:main && node --test tests/*.test.js",
+    "test:coverage": "npm run build:main && node --test --experimental-test-coverage tests/*.test.js",
     "test:emulators": "npm run build:main && node --test tests/emulator-linux.test.js",
     "dist": "electron-builder",
     "dist:win": "npm run build && electron-builder --win",

@@ -27,7 +27,6 @@ type RommApiBridge = {
   };
   roms: Record<string, (...args: any[]) => Promise<any>>;
   emulator: Record<string, (...args: any[]) => Promise<any>>;
-  saves: Record<string, (...args: any[]) => Promise<any>>;
   platforms: Record<string, (...args: any[]) => Promise<any>>;
   stats: Record<string, (...args: any[]) => Promise<any>>;
   updates: Record<string, (...args: any[]) => Promise<any>>;
