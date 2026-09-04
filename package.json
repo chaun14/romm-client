@@ -90,7 +90,7 @@
       "icon": "src/renderer/assets/imgs/icon.png",
       "executableName": "romm-client",
       "syncDesktopName": true,
-      "artifactName": "RomMClient-${version}-${arch}.${ext}"
+      "artifactName": "RomMClient-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
