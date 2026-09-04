@@ -3,6 +3,7 @@ import pathModule from "path";
 import { Transform } from "stream";
 import { pipeline } from "stream/promises";
 import type { ApiResponse, DownloadProgress, RomOptions, HeartbeatResponse, User, ConfigResponse, Platform, StatsResponse, Rom, RomDetails, RomsResponse, LocalRom } from "../types/RommApi";
+import { getApiAvailabilityEffect } from "../utils/ApiAvailability";
 const FormData = require("form-data");
 
 const API_REQUEST_TIMEOUT_MS = 10_000;
@@ -72,10 +73,11 @@ export class RommApi {
 
   private async handleApiError(error: any): Promise<{ success: false; error: string; status?: number; code?: string }> {
     const status = error.response?.status;
-    if (typeof status !== "number" || status === 401 || status === 403 || status >= 500) {
-      this.available = false;
-    }
-    console.error(`[ROMM API] API Error details:`, {
+    const availabilityEffect = getApiAvailabilityEffect(error);
+    if (availabilityEffect === "available") this.available = true;
+    else if (availabilityEffect === "unavailable") this.available = false;
+    const errorKind = availabilityEffect === "unchanged" ? "Operation Error" : "API Error";
+    console.error(`[ROMM API] ${errorKind} details:`, {
       message: error.message,
       status: error.response?.status,
       statusText: error.response?.statusText,

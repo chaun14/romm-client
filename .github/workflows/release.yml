@@ -32,8 +32,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Test emulator runtime integration
-        run: npm run test:emulators
+      - name: Test runtime integration
+        run: npm test
 
       - name: Build and publish
         env:

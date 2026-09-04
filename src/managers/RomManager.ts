@@ -190,7 +190,7 @@ export class RomManager {
     if (!rommApi) return null;
     const response = await rommApi.fetchRomById(romId);
     if (!response.success || !response.data) {
-      console.warn(`[ROM MANAGER] Could not refresh detailed metadata for local ROM ${romId}: ${response.error || "unknown error"}`);
+      console.warn(`[ROM MANAGER] Could not refresh detailed metadata for ROM ${romId}: ${response.error || "unknown error"}`);
       return null;
     }
 
@@ -577,6 +577,16 @@ export class RomManager {
       await this.ensureDirectory(romEmulatorPath, "ROM");
       const rommApi = this.rommClient.getOnlineRommApi();
       if (!rommApi) throw new Error("RomM is offline and this ROM is not available locally");
+
+      // Library/search responses can omit the file list. Refresh the detailed
+      // ROM object before concluding that there is nothing to download.
+      let detailedRomForDownload: Rom | null = null;
+      if (!this.hasDownloadMetadata(rom)) {
+        console.log(`[LAUNCH]Refreshing detailed download metadata for ROM ${rom.id}`);
+        detailedRomForDownload = await this.fetchDetailedRomMetadata(rom.id);
+        if (detailedRomForDownload) rom = detailedRomForDownload;
+      }
+
       onProgress({ step: "download", percent: 0, downloaded: "0.00", total: "0.00", message: "Starting download..." });
       let dlres = await rommApi.downloadRom(rom, romEmulatorPath, onProgress);
       if (!dlres || !dlres.success || dlres.error) throw new Error("Failed to download ROM: " + (dlres?.error || "Unknown error"));
@@ -652,7 +662,7 @@ export class RomManager {
         throw new Error("Downloaded ROM is invalid");
       } else {
         console.log("[LAUNCH]" + `Downloaded ROM is valid: ${localRom!.name} (ID: ${localRom!.id})`);
-        const detailedRom = await this.fetchDetailedRomMetadata(rom.id);
+        const detailedRom = detailedRomForDownload || (await this.fetchDetailedRomMetadata(rom.id));
         if (detailedRom) {
           const localRomIndex = this.localRoms.findIndex((candidate) => candidate.id === rom.id);
           localRom = {
@@ -673,6 +683,10 @@ export class RomManager {
 
     // Now that we have the ROM, proceed with save preparation
     return { success: true, rom, localRom };
+  }
+
+  private hasDownloadMetadata(rom: Rom): boolean {
+    return Boolean(rom.has_simple_single_file || rom.has_multiple_files || rom.has_nested_single_file || (Array.isArray(rom.files) && rom.files.length > 0));
   }
 
   /**
@@ -730,6 +744,7 @@ export class RomManager {
       }
 
       const { localRom } = launchResult;
+      rom = launchResult.rom || rom;
 
       // Resolve the actual game file before comparing saves. Emulators such as
       // Azahar derive the game's storage identifier directly from its header.
