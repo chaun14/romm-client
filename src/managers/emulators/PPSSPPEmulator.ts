@@ -27,7 +27,7 @@ export class PPSSPPEmulator extends Emulator {
    * Get supported file extensions for PPSSPP
    */
   public static getExtensions(): string[] {
-    return [".iso", ".cso", ".pbp", ".elf"];
+    return [".iso", ".cso", ".pbp", ".elf", "chd"];
   }
 
   /**
