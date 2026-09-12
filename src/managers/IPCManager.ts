@@ -5,6 +5,7 @@ import { RommClient } from "../RomMClient";
 import { autoUpdater } from "electron-updater";
 import { RommApi } from "../api/RommApi";
 import { EmulatorManager } from "./EmulatorManager";
+import { getAppPaths } from "../utils/AppPaths";
 
 type AxiosStatic = {
   get: (url: string, options?: any) => Promise<any>;
@@ -32,7 +33,7 @@ export class IPCManager {
     });
 
     ipcMain.handle("config:open-work-folder", async () => {
-      const workFolder = path.join(process.env.APPDATA || process.env.HOME || app.getPath("userData"), "romm-client");
+      const workFolder = getAppPaths().dataDir;
       await fs.promises.mkdir(workFolder, { recursive: true });
       const error = await shell.openPath(workFolder);
 

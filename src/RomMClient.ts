@@ -10,6 +10,7 @@ import { SaveManager } from "./managers/SaveManager";
 import { RomManager } from "./managers/RomManager";
 import { autoUpdater } from "electron-updater";
 import { UpdateInfo, ProgressInfo } from "electron-updater";
+import { getInstancePaths } from "./utils/AppPaths";
 
 export class RommClient extends BrowserWindow {
   public settings: AppSettings;
@@ -350,39 +351,11 @@ export class RommClient extends BrowserWindow {
   }
 
   async setupFolders() {
-    // for better multi instance management, we use separate folders per instance by adding a suffix based on the domain from the baseUrl
-    let instanceSuffix = "";
-    if (this.settings.baseUrl) {
-      try {
-        const urlObj = new URL(this.settings.baseUrl);
-        instanceSuffix = `_${urlObj.hostname}`;
-      } catch {
-        instanceSuffix = "";
-      }
-    }
-
-    // Create cache directory for ROMs (use emulator name for better organization)
-    let romPath = process.env.APPDATA || process.env.HOME || __dirname;
-    const romDir = path.join(romPath, "romm-client", "roms" + instanceSuffix);
-    // check if directory exists
-    if (!fs.existsSync(romDir)) {
-      await fs.mkdirSync(romDir, { recursive: true });
-    }
-    this.romsFolder = romDir;
-
-    // same for the saves folder
-    const savesDir = path.join(romPath, "romm-client", "saves" + instanceSuffix);
-    if (!fs.existsSync(savesDir)) {
-      await fs.mkdirSync(savesDir, { recursive: true });
-    }
-    this.savesFolder = savesDir;
-
-    // same for the emulator configs folder
-    const emulatorConfigsDir = path.join(romPath, "romm-client", "emulatorsConfig" + instanceSuffix);
-    if (!fs.existsSync(emulatorConfigsDir)) {
-      await fs.mkdirSync(emulatorConfigsDir, { recursive: true });
-    }
-    this.emulatorConfigsFolder = emulatorConfigsDir;
+    const folders = getInstancePaths(this.settings.baseUrl);
+    await Promise.all(Object.values(folders).map((directory) => fs.promises.mkdir(directory, { recursive: true, mode: 0o700 })));
+    this.romsFolder = folders.roms;
+    this.savesFolder = folders.saves;
+    this.emulatorConfigsFolder = folders.emulatorConfigs;
   }
 
   getRomFolder() {

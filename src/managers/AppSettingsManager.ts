@@ -1,5 +1,6 @@
 import * as fs from "fs/promises";
 import * as path from "path";
+import { getAppPaths } from "../utils/AppPaths";
 
 /**
  * Type for application settings
@@ -31,7 +32,7 @@ export class AppSettingsManager {
       password: null,
       username: null,
     };
-    this.configPath = path.join(process.env.APPDATA || process.env.HOME || "", "romm-client", "config.json");
+    this.configPath = path.join(getAppPaths().configDir, "config.json");
   }
 
   /**
