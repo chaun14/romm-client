@@ -10,7 +10,7 @@ const { RommIntegratedEmulator } = require("../out/managers/emulators/RommIntegr
 const config = (path = "/emulator") => ({ path, platform: "ignored", name: "ignored", extensions: [], args: [] });
 
 test("PPSSPP declares PSP formats, platform and save support", () => {
-  assert.deepEqual(PPSSPPEmulator.getExtensions(), [".iso", ".cso", ".pbp", ".elf"]);
+  assert.deepEqual(PPSSPPEmulator.getExtensions(), [".iso", ".cso", ".pbp", ".elf", ".chd"]);
   assert.deepEqual(PPSSPPEmulator.getPlatforms(), ["psp"]);
   assert.equal(PPSSPPEmulator.getRommSlug(), "psp");
   assert.equal(PPSSPPEmulator.getSupportsSaves(), true);
